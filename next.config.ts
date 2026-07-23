@@ -65,6 +65,13 @@ const SECURITY_HEADERS = [
 
 const nextConfig: NextConfig = {
   /**
+   * Standalone output — produz .next/standalone com um server.js
+   * mínimo e apenas as dependências necessárias. Essencial para
+   * containers Docker enxutos (usado no deploy do EasyPanel).
+   */
+  output: "standalone",
+
+  /**
    * Cross-origin dev access (Next.js 16).
    *
    * Next 16 blocks requests to dev-only resources (`/_next/*` internals,
