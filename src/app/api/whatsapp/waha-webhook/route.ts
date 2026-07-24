@@ -110,30 +110,64 @@ function extractSerialized(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) return value.trim();
   const record = asRecord(value);
   if (!record) return undefined;
-  return firstString(record._serialized, record.serialized, record.id, record.remote);
+  return firstString(
+    record._serialized,
+    record.serialized,
+    record.id,
+    record.remote,
+    record.remoteJid,
+    record.chatId,
+    record.from,
+  );
 }
 
 function extractChatId(value: unknown): string | undefined {
   const serialized = extractSerialized(value);
   if (!serialized) return undefined;
-  const direct = serialized.match(/(?:^|_)([0-9A-Za-z.-]+@(?:c|g|lid)\.us)(?:_|$)/);
+  const direct = serialized.match(
+    /(?:^|_)([0-9A-Za-z.-]+@(?:c|g)\.us|[0-9A-Za-z.-]+@s\.whatsapp\.net|[0-9A-Za-z.-]+@lid)(?:_|$)/,
+  );
   return direct?.[1] ?? serialized;
+}
+
+function isOneToOneChatId(chatId: string): boolean {
+  return (
+    chatId.endsWith('@c.us') ||
+    chatId.endsWith('@s.whatsapp.net') ||
+    chatId.endsWith('@lid')
+  );
 }
 
 function resolveSenderChatId(msg: JsonRecord): string | null {
   const data = getRecord(msg, '_data');
   const id = getRecord(msg, 'id');
   const dataId = getRecord(data, 'id');
+  const key = getRecord(msg, 'key');
+  const dataKey = getRecord(data, 'key');
+  const sender = getRecord(msg, 'sender');
   const candidates = [
     msg.from,
     msg.chatId,
     msg.remoteJid,
+    msg.to,
     data?.from,
     data?.chatId,
+    data?.remoteJid,
+    data?.to,
     id?.remote,
+    id?.remoteJid,
     dataId?.remote,
+    dataId?.remoteJid,
+    key?.remoteJid,
+    key?.participant,
+    dataKey?.remoteJid,
+    dataKey?.participant,
+    sender?.id,
+    sender?.jid,
     id,
     dataId,
+    key,
+    dataKey,
     msg.author,
     data?.author,
   ];
@@ -141,7 +175,7 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const chatIds = candidates
     .map(extractChatId)
     .filter((value): value is string => Boolean(value));
-  return chatIds.find((value) => value.endsWith('@c.us')) ?? chatIds[0] ?? null;
+  return chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
 }
 
 function resolveMessageId(msg: JsonRecord, session: string, chatId: string, createdAt: string): string {
@@ -239,7 +273,7 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
     getBoolean(dataId, 'fromMe') ??
     false;
   const chatId = resolveSenderChatId(msg);
-  if (!chatId || !chatId.endsWith('@c.us')) return null;
+  if (!chatId || !isOneToOneChatId(chatId)) return null;
 
   const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
   if (!digits) return null;
