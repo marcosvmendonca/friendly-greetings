@@ -949,25 +949,72 @@ async function fetchWahaContactInfo(
   }
   if (!baseUrl || !apiKey) return { phone: fallbackPhone, displayName: fallbackName };
 
-  const params = new URLSearchParams({
+  const queryParams = new URLSearchParams({
     contactId: chatId,
     session: config.waha_session ?? 'default',
   });
+  const encodedSession = encodeURIComponent(config.waha_session ?? 'default');
+  const encodedChatId = encodeURIComponent(chatId);
+  const attempts = [
+    `${baseUrl}/api/contacts?${queryParams.toString()}`,
+    `${baseUrl}/api/contacts/${encodedChatId}?session=${encodedSession}`,
+    `${baseUrl}/api/${encodedSession}/contacts/${encodedChatId}`,
+  ];
+
+  const pickContactRecord = (value: unknown): JsonRecord | null => {
+    if (Array.isArray(value)) {
+      const matching = value
+        .map(asRecord)
+        .find((item) => {
+          const idValue = firstString(item?.id, item?.jid, item?.phone, item?.number);
+          return idValue === chatId || idValue === normalizedChatId;
+        });
+      return matching ?? value.map(asRecord).find(Boolean) ?? null;
+    }
+    const record = asRecord(value);
+    return asRecord(record?.contact) ?? record;
+  };
+
+  const normalizedChatId = normalizeWahaChatId(chatId);
+  const extractPhone = (record: JsonRecord): string | null => {
+    const idRecord = getRecord(record, 'id');
+    const rawPhone = firstString(
+      record.number,
+      record.phone,
+      record.phoneNumber,
+      record.formattedNumber,
+      idRecord?.user,
+    );
+    if (!rawPhone || rawPhone.includes('@lid')) return null;
+    const digits = rawPhone.replace(/\D/g, '');
+    if (digits.length < 8) return null;
+    return normalizePhone(`+${digits}`);
+  };
+
   try {
-    const res = await fetch(`${baseUrl}/api/contacts?${params.toString()}`, {
-      method: 'GET',
-      headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
-    });
-    if (!res.ok) return { phone: fallbackPhone, displayName: fallbackName };
-    const json = (await res.json().catch(() => null)) as JsonRecord | null;
-    const number = firstString(json?.number, json?.phone, json?.id);
-    const digits = number?.replace(/\D/g, '') || fallbackPhone;
-    const displayName =
-      firstString(json?.name, json?.pushname, json?.pushName, json?.shortName, fallbackName) ?? null;
-    return {
-      phone: digits ? normalizePhone(`+${digits}`) : fallbackPhone,
-      displayName,
-    };
+    for (const url of attempts) {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
+      });
+      if (!res.ok) continue;
+      const record = pickContactRecord(await res.json().catch(() => null));
+      if (!record) continue;
+      const displayName =
+        firstString(
+          record.name,
+          record.pushname,
+          record.pushName,
+          record.shortName,
+          record.verifiedName,
+          fallbackName,
+        ) ?? null;
+      return {
+        phone: extractPhone(record) ?? fallbackPhone,
+        displayName,
+      };
+    }
+    return { phone: fallbackPhone, displayName: fallbackName };
   } catch (err) {
     console.warn('[waha-webhook] contact lookup failed', err instanceof Error ? err.message : err);
     return { phone: fallbackPhone, displayName: fallbackName };
