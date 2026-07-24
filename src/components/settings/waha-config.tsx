@@ -278,13 +278,17 @@ export function WahaConfigPanel() {
               </Alert>
             )}
             <form onSubmit={handleSave} className="space-y-4">
-
+              <div className="space-y-1.5">
+                <Label htmlFor="waha-base">URL da instância WAHA</Label>
+                <Input
+                  id="waha-base"
                   placeholder="https://waha.seudominio.com"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   required
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="waha-key">API Key (WHATSAPP_API_KEY)</Label>
                 <Input
