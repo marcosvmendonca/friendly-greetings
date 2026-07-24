@@ -144,6 +144,17 @@ function MessageContent({ message, t }: { message: Message, t: ReturnType<typeof
         </div>
       );
 
+    case "sticker":
+      return message.media_url ? (
+        <img
+          src={message.media_url}
+          alt="Sticker"
+          className="max-h-40 max-w-40 rounded-lg bg-transparent"
+        />
+      ) : (
+        <MediaUnavailable label="Sticker" t={t} />
+      );
+
     case "video":
       return (
         <div>
