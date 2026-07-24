@@ -597,10 +597,15 @@ export async function POST(request: Request) {
 
   // WAHA `from` is `<digits>@c.us` for 1:1 chats. Groups (`@g.us`) are
   // skipped — the CRM's data model assumes 1:1.
-  // Find-or-create contact within the account.
-  let contactId: string | undefined = (
-    await findExistingContact(admin, config.account_id, normalized.phone)
-  )?.id;
+  // Find-or-create contact within the account. Capture the WhatsApp
+  // pushName as the initial display name so the inbox stops showing raw
+  // phone numbers, and enrich existing rows on subsequent messages.
+  const pushName = extractPushName(body);
+  const initialName = pushName?.trim() || normalized.phone;
+  const existing = await findExistingContact(admin, config.account_id, normalized.phone);
+  let contactId: string | undefined = existing?.id;
+  let existingName: string | null = (existing?.name as string | null) ?? null;
+  let existingAvatar: string | null = (existing?.avatar_url as string | null) ?? null;
 
   if (!contactId) {
     const { data: inserted, error: insertErr } = await admin
@@ -609,20 +614,39 @@ export async function POST(request: Request) {
         account_id: config.account_id,
         user_id: config.user_id,
         phone: normalized.phone,
-        name: normalized.phone,
+        name: initialName,
       })
-      .select('id')
+      .select('id, name, avatar_url')
       .maybeSingle();
     if (insertErr && !isUniqueViolation(insertErr)) {
       console.error('[waha-webhook] contact insert', insertErr);
       return NextResponse.json({ ok: false }, { status: 500 });
     }
-    contactId =
-      inserted?.id ??
-      (await findExistingContact(admin, config.account_id, normalized.phone))
-        ?.id;
+    if (inserted?.id) {
+      contactId = inserted.id as string;
+      existingName = (inserted.name as string | null) ?? initialName;
+      existingAvatar = (inserted.avatar_url as string | null) ?? null;
+    } else {
+      const raced = await findExistingContact(admin, config.account_id, normalized.phone);
+      contactId = raced?.id;
+      existingName = (raced?.name as string | null) ?? null;
+      existingAvatar = (raced?.avatar_url as string | null) ?? null;
+    }
   }
   if (!contactId) return NextResponse.json({ ok: false }, { status: 500 });
+
+  // Best-effort enrichment (name + avatar). Runs sequentially but only
+  // when we're actually missing data, so most webhook hits skip it.
+  await enrichContact(
+    admin,
+    config,
+    contactId,
+    existingName,
+    existingAvatar,
+    normalized.phone,
+    normalized.chatId,
+    pushName,
+  );
 
   // Find-or-create conversation.
   const { data: existingRows, error: existingConvErr } = await admin
