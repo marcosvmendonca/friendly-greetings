@@ -146,8 +146,6 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
 
 function resolveMessageId(msg: JsonRecord, session: string, chatId: string, createdAt: string): string {
   const data = getRecord(msg, '_data');
-  const id = getRecord(msg, 'id');
-  const dataId = getRecord(data, 'id');
   return (
     extractSerialized(msg.id) ??
     extractSerialized(data?.id) ??
