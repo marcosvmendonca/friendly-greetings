@@ -135,8 +135,20 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
 
 function MediaSticker({ url }: { url: string }) {
   const { src, error, loading, setError } = useResolvedMediaUrl(url);
-  if (error) return <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted"><ImageOff className="h-7 w-7 text-muted-foreground" /></div>;
-  if (loading) return <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  if (error) {
+    return (
+      <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted">
+        <ImageOff className="h-7 w-7 text-muted-foreground" />
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
   return (
     <img
       src={src ?? ""}
@@ -151,7 +163,13 @@ function MediaVideo({ url }: { url: string }) {
   const { src, error, loading } = useResolvedMediaUrl(url);
   const t = useTranslations("Inbox.bubble");
   if (error) return <MediaUnavailable label={t("video")} t={t} />;
-  if (loading) return <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>;
+  if (loading) {
+    return (
+      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
   return <video src={src ?? ""} controls className="max-h-64 max-w-60 rounded-lg" />;
 }
 

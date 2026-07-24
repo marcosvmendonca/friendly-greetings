@@ -114,11 +114,15 @@ function InboxPageInner() {
    * realtime channel). The ref is kept in sync via the effect below.
    */
   const knownConvIdsRef = useRef<Set<string>>(new Set());
+  const activeConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
     knownConvIdsRef.current = next;
   }, [conversations]);
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversation?.id ?? null;
+  }, [activeConversation?.id]);
 
   // Pull the conversation row with its `contact` joined and merge it
   // into state. Needed because Supabase Realtime payloads only carry the
@@ -161,12 +165,15 @@ function InboxPageInner() {
           // realtime payloads never carry.
           return prev.map((c) =>
             c.id === fetched.id
-              ? { ...c, contact: c.contact ?? fetched.contact }
+              ? { ...c, contact: fetched.contact ?? c.contact }
               : c,
           );
         }
         return [fetched, ...prev];
       });
+      if (activeConversationIdRef.current === fetched.id && fetched.contact) {
+        setActiveContact(fetched.contact);
+      }
     } finally {
       hydratingConvIdsRef.current.delete(convId);
     }

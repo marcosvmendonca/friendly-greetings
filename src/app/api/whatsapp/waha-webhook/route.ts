@@ -338,7 +338,19 @@ function extractMediaBundle(value: unknown): WahaMediaBundle {
   if (!record) {
     return { url: null, data: null, mimetype: null, filename: null };
   }
-  return resolveMediaBundle(record);
+  const nested = resolveMediaBundle(record);
+  return {
+    url: nested.url ?? firstString(record.url, record.mediaUrl, record.downloadUrl) ?? null,
+    data: nested.data ?? firstString(record.data, record.mediaData) ?? null,
+    mimetype:
+      nested.mimetype ??
+      firstString(record.mimetype, record.mimeType, record.contentType) ??
+      null,
+    filename:
+      nested.filename ??
+      firstString(record.filename, record.fileName, record.name) ??
+      null,
+  };
 }
 
 function hasMediaBytes(bundle: WahaMediaBundle): boolean {
@@ -525,7 +537,14 @@ async function enrichContact(
 ): Promise<void> {
   const patch: Record<string, unknown> = {};
   // Only override the name when it's still the raw phone (auto-created).
-  const nameIsAuto = !currentName || currentName === currentPhone || currentName.trim() === '';
+  const normalizedName = normalizePhone(currentName ?? '');
+  const normalizedCurrentPhone = normalizePhone(currentPhone);
+  const nameIsAuto =
+    !currentName ||
+    currentName === currentPhone ||
+    currentName.trim() === '' ||
+    (normalizedName !== '' && normalizedName === normalizedCurrentPhone) ||
+    /^[+\d\s().-]+$/.test(currentName);
   if (pushName && nameIsAuto) patch.name = pushName;
   if (!currentAvatar) {
     const avatar = await fetchWahaProfilePicture(admin, config, chatId);
@@ -768,33 +787,9 @@ async function fetchWahaMessageMediaBundle(
 let chatMediaBucketReady = false;
 async function ensureChatMediaBucket(admin: SupabaseClient): Promise<void> {
   if (chatMediaBucketReady) return;
-  const allowedMimeTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'video/mp4',
-    'video/quicktime',
-    'video/webm',
-    'video/3gpp',
-    'audio/ogg',
-    'audio/mpeg',
-    'audio/mp4',
-    'audio/aac',
-    'audio/wav',
-    'audio/webm',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/zip',
-    'application/octet-stream',
-  ];
   const options = {
     public: true,
     fileSizeLimit: 100 * 1024 * 1024,
-    allowedMimeTypes,
   };
   const { data, error } = await admin.storage.getBucket('chat-media');
   if (error || !data) {
