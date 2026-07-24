@@ -258,6 +258,9 @@ function resolveMediaUrl(msg: JsonRecord): string | null {
 function mapWahaContentType(type?: string): string {
   if (!type || type === 'chat') return 'text';
   if (type === 'ptt') return 'audio';
+  // WAHA/WhatsApp exposes stickers as their own type; store as sticker
+  // so the bubble renderer can differentiate from a regular image.
+  if (type === 'sticker') return 'sticker';
 
   const allowed = new Set([
     'text',
@@ -268,10 +271,29 @@ function mapWahaContentType(type?: string): string {
     'location',
     'template',
     'interactive',
+    'sticker',
   ]);
 
   return allowed.has(type) ? type : 'text';
 }
+
+// System / protocol / status events masquerade as messages in WAHA.
+// Everything in this set is either a delivery/read receipt, an
+// encryption-key-changed banner, a "message was deleted" tombstone, or
+// an internal cipher event — none of which the user cares about.
+const IGNORED_WAHA_TYPES = new Set([
+  'revoked',
+  'notification_template',
+  'e2e_notification',
+  'ciphertext',
+  'protocol',
+  'gp2', // group participant change
+  'unknown',
+  'ack',
+  'receipt',
+  'call_log',
+  'status',
+]);
 
 function normalizeWahaMessage(body: WahaWebhookPayload, session: string): NormalizedWahaMessage | null {
   const root = body as JsonRecord;
@@ -296,7 +318,8 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
   if (!digits) return null;
 
-  const rawType = getString(msg, 'type') ?? getString(data, 'type') ?? 'chat';
+  const rawType = (getString(msg, 'type') ?? getString(data, 'type') ?? 'chat').toLowerCase();
+  if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const contentText = resolveMessageBody(msg);
   return {
@@ -310,6 +333,142 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
     createdAt,
     rawType,
   };
+}
+
+function extractPushName(body: WahaWebhookPayload): string | null {
+  const root = body as JsonRecord;
+  const msg =
+    asRecord(root.payload) ??
+    asRecord(root.message) ??
+    asRecord(root.data);
+  if (!msg) return null;
+  const data = getRecord(msg, '_data');
+  const notify = getRecord(data, 'notifyName');
+  return (
+    firstString(
+      msg.pushName,
+      msg.notifyName,
+      msg._pushName,
+      data?.pushName,
+      data?.notifyName,
+      notify?.formattedName,
+    ) ?? null
+  );
+}
+
+async function fetchWahaProfilePicture(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  chatId: string,
+): Promise<string | null> {
+  try {
+    const { data: row } = await admin
+      .from('whatsapp_config')
+      .select('waha_base_url')
+      .eq('id', config.id)
+      .maybeSingle();
+    const baseUrl = (row?.waha_base_url as string | null)?.replace(/\/+$/, '');
+    const apiKey = config.waha_api_key ? decrypt(config.waha_api_key) : null;
+    if (!baseUrl || !apiKey) return null;
+    const params = new URLSearchParams({
+      contactId: chatId,
+      session: config.waha_session ?? 'default',
+    });
+    const res = await fetch(`${baseUrl}/api/contacts/profile-picture?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json().catch(() => null)) as
+      | { profilePictureURL?: string; url?: string }
+      | null;
+    return json?.profilePictureURL ?? json?.url ?? null;
+  } catch (err) {
+    console.warn('[waha-webhook] profile-picture fetch failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+async function enrichContact(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  contactId: string,
+  currentName: string | null,
+  currentAvatar: string | null,
+  currentPhone: string,
+  chatId: string,
+  pushName: string | null,
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  // Only override the name when it's still the raw phone (auto-created).
+  const nameIsAuto = !currentName || currentName === currentPhone || currentName.trim() === '';
+  if (pushName && nameIsAuto) patch.name = pushName;
+  if (!currentAvatar) {
+    const avatar = await fetchWahaProfilePicture(admin, config, chatId);
+    if (avatar) patch.avatar_url = avatar;
+  }
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await admin.from('contacts').update(patch).eq('id', contactId);
+  if (error) console.warn('[waha-webhook] contact enrich failed:', error.message);
+}
+
+async function handleWahaReaction(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  body: WahaWebhookPayload,
+): Promise<void> {
+  const root = body as JsonRecord;
+  const msg =
+    asRecord(root.payload) ??
+    asRecord(root.message) ??
+    asRecord(root.data);
+  if (!msg) return;
+  const reaction = getRecord(msg, 'reaction');
+  const emoji = getString(reaction, 'text') ?? getString(msg, 'reactionText') ?? '';
+  const targetId =
+    extractSerialized(reaction?.messageId) ??
+    extractSerialized(reaction?.id) ??
+    extractSerialized(msg.reactionMessageId);
+  const chatId = resolveSenderChatId(msg);
+  if (!targetId || !chatId) return;
+  const normalizedTarget = normalizeWahaMessageId(targetId);
+  const fromMe =
+    getBoolean(msg, 'fromMe') ??
+    getBoolean(getRecord(msg, 'id'), 'fromMe') ??
+    false;
+  if (fromMe) return; // agent-side reactions are written by /api/whatsapp/react
+
+  // Find the target message.
+  const { data: targetMsg } = await admin
+    .from('messages')
+    .select('id, conversation_id, conversations!inner(contact_id, account_id)')
+    .eq('message_id', normalizedTarget)
+    .limit(1)
+    .maybeSingle();
+  const target = targetMsg as
+    | { id: string; conversation_id: string; conversations: { contact_id: string; account_id: string } }
+    | null;
+  if (!target || target.conversations.account_id !== config.account_id) return;
+
+  if (!emoji) {
+    await admin
+      .from('message_reactions')
+      .delete()
+      .eq('message_id', target.id)
+      .eq('actor_type', 'customer')
+      .eq('actor_id', target.conversations.contact_id);
+    return;
+  }
+  await admin.from('message_reactions').upsert(
+    {
+      message_id: target.id,
+      conversation_id: target.conversation_id,
+      actor_type: 'customer',
+      actor_id: target.conversations.contact_id,
+      emoji,
+    },
+    { onConflict: 'message_id,actor_type,actor_id' },
+  );
 }
 
 async function resolveWahaConfig(
@@ -374,16 +533,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Route reactions to their own handler; they're state on an existing
+  // target message, not new bubbles.
+  if (event === 'message.reaction') {
+    const admin = supabaseAdmin();
+    const config = await resolveWahaConfig(admin, session);
+    if (config?.account_id) await handleWahaReaction(admin, config, body);
+    return NextResponse.json({ ok: true });
+  }
+
   // We only care about inbound customer messages. WAHA emits both
   // `message` (inbound only) and `message.any` (inbound + outbound) for
   // the same wamid — accept only `message` to avoid duplicate inserts.
+  // Everything else (message.ack, message.revoked, session.status, …) is
+  // a status update that shouldn't materialize as a chat bubble.
   if (event !== 'message') {
     return NextResponse.json({ ok: true });
   }
 
   const normalized = normalizeWahaMessage(body, session);
   if (!normalized) {
-    console.warn('[waha-webhook] message payload ignored; no 1:1 chat id found', {
+    console.warn('[waha-webhook] message payload ignored (system/non-1:1)', {
       event,
       session,
     });
@@ -427,10 +597,15 @@ export async function POST(request: Request) {
 
   // WAHA `from` is `<digits>@c.us` for 1:1 chats. Groups (`@g.us`) are
   // skipped — the CRM's data model assumes 1:1.
-  // Find-or-create contact within the account.
-  let contactId: string | undefined = (
-    await findExistingContact(admin, config.account_id, normalized.phone)
-  )?.id;
+  // Find-or-create contact within the account. Capture the WhatsApp
+  // pushName as the initial display name so the inbox stops showing raw
+  // phone numbers, and enrich existing rows on subsequent messages.
+  const pushName = extractPushName(body);
+  const initialName = pushName?.trim() || normalized.phone;
+  const existing = await findExistingContact(admin, config.account_id, normalized.phone);
+  let contactId: string | undefined = existing?.id;
+  let existingName: string | null = (existing?.name as string | null) ?? null;
+  let existingAvatar: string | null = (existing?.avatar_url as string | null) ?? null;
 
   if (!contactId) {
     const { data: inserted, error: insertErr } = await admin
@@ -439,20 +614,39 @@ export async function POST(request: Request) {
         account_id: config.account_id,
         user_id: config.user_id,
         phone: normalized.phone,
-        name: normalized.phone,
+        name: initialName,
       })
-      .select('id')
+      .select('id, name, avatar_url')
       .maybeSingle();
     if (insertErr && !isUniqueViolation(insertErr)) {
       console.error('[waha-webhook] contact insert', insertErr);
       return NextResponse.json({ ok: false }, { status: 500 });
     }
-    contactId =
-      inserted?.id ??
-      (await findExistingContact(admin, config.account_id, normalized.phone))
-        ?.id;
+    if (inserted?.id) {
+      contactId = inserted.id as string;
+      existingName = (inserted.name as string | null) ?? initialName;
+      existingAvatar = (inserted.avatar_url as string | null) ?? null;
+    } else {
+      const raced = await findExistingContact(admin, config.account_id, normalized.phone);
+      contactId = raced?.id;
+      existingName = (raced?.name as string | null) ?? null;
+      existingAvatar = (raced?.avatar_url as string | null) ?? null;
+    }
   }
   if (!contactId) return NextResponse.json({ ok: false }, { status: 500 });
+
+  // Best-effort enrichment (name + avatar). Runs sequentially but only
+  // when we're actually missing data, so most webhook hits skip it.
+  await enrichContact(
+    admin,
+    config,
+    contactId,
+    existingName,
+    existingAvatar,
+    normalized.phone,
+    normalized.chatId,
+    pushName,
+  );
 
   // Find-or-create conversation.
   const { data: existingRows, error: existingConvErr } = await admin

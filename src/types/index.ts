@@ -214,6 +214,7 @@ export type ContentType =
   | 'video'
   | 'location'
   | 'template'
+  | 'sticker'
   /** Customer tapped a reply button or list row on a message we sent. */
   | 'interactive';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
