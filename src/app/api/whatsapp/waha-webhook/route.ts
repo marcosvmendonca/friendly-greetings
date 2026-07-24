@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
   // Find-or-create contact within the account.
   let contactId: string | undefined = (
-    await findExistingContact(admin, { accountId: config.account_id, phone })
+    await findExistingContact(admin, config.account_id, phone)
   )?.id;
 
   if (!contactId) {
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
     }
     contactId =
       inserted?.id ??
-      (await findExistingContact(admin, { accountId: config.account_id, phone }))
+      (await findExistingContact(admin, config.account_id, phone))
         ?.id;
   }
   if (!contactId) return NextResponse.json({ ok: false }, { status: 500 });
