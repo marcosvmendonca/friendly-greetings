@@ -24,7 +24,7 @@ const templateSchema = z
   .describe('Template payload — required when type is "template".');
 
 export function registerWriteTools(server: McpServer, client: WacrmClient): void {
-  server.registerTool(
+  (server as any).registerTool(
     'send_message',
     {
       title: 'Send WhatsApp message',
@@ -51,13 +51,13 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
           .string()
           .optional()
           .describe('Optional id of a message in the same conversation to reply to.'),
-      },
+      } as never,
       annotations: { title: 'Send WhatsApp message', readOnlyHint: false, openWorldHint: true },
     },
     handle(async (args) => jsonResult(await client.sendMessage(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'create_contact',
     {
       title: 'Create contact',
@@ -69,13 +69,13 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
         email: z.string().email().optional(),
         company: z.string().optional(),
         tags: z.array(z.string()).optional().describe('Tag names; created if they do not exist.'),
-      },
+      } as never,
       annotations: { title: 'Create contact', readOnlyHint: false, openWorldHint: true },
     },
     handle(async (args) => jsonResult(await client.createContact(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'update_contact',
     {
       title: 'Update contact',
@@ -87,7 +87,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
         email: z.string().email().optional(),
         company: z.string().optional(),
         tags: z.array(z.string()).optional().describe('Replaces the contact’s tags.'),
-      },
+      } as never,
       annotations: { title: 'Update contact', readOnlyHint: false, openWorldHint: true },
     },
     handle(async ({ id, ...body }) => jsonResult(await client.updateContact(id, body))),

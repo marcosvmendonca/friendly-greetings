@@ -73,7 +73,6 @@ const nextConfig: NextConfig = {
 
   // Skip type/lint errors during Lovable preview builds (pre-existing repo issues).
   typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
 
 
   /**

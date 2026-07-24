@@ -15,19 +15,19 @@ import { handle, jsonResult } from './shared.js';
 const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
 
 export function registerReadTools(server: McpServer, client: WacrmClient): void {
-  server.registerTool(
+  (server as any).registerTool(
     'whoami',
     {
       title: 'Who am I',
       description:
         'Verify the API key and show which wacrm account it is bound to and what scopes it carries. Call this first to discover what actions are possible.',
-      inputSchema: {},
+      inputSchema: {} as never,
       annotations: { ...READ_ONLY, title: 'Who am I' },
     },
     handle(async () => jsonResult(await client.me())),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_contacts',
     {
       title: 'List contacts',
@@ -44,26 +44,26 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
           .optional()
           .describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor from a previous response.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List contacts' },
     },
     handle(async (args) => jsonResult(await client.listContacts(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_contact',
     {
       title: 'Get contact',
       description: 'Read a single contact by its id.',
       inputSchema: {
         id: z.string().describe('Contact id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get contact' },
     },
     handle(async ({ id }) => jsonResult(await client.getContact(id))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_conversations',
     {
       title: 'List conversations',
@@ -74,26 +74,26 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         contact_id: z.string().optional().describe('Only conversations for this contact.'),
         limit: z.number().int().min(1).max(100).optional().describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List conversations' },
     },
     handle(async (args) => jsonResult(await client.listConversations(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_conversation',
     {
       title: 'Get conversation',
       description: 'Read a single conversation by id, including its contact and tags.',
       inputSchema: {
         id: z.string().describe('Conversation id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get conversation' },
     },
     handle(async ({ id }) => jsonResult(await client.getConversation(id))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_messages',
     {
       title: 'List messages',
@@ -103,7 +103,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         conversation_id: z.string().describe('The conversation to read messages from.'),
         limit: z.number().int().min(1).max(100).optional().describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List messages' },
     },
     handle(async ({ conversation_id, limit, cursor }) =>
@@ -111,7 +111,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     ),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_broadcast',
     {
       title: 'Get broadcast status',
@@ -119,7 +119,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         'Read a broadcast campaign by id — its status and delivered / read / rejected counts. Use this to poll progress after launching one.',
       inputSchema: {
         id: z.string().describe('Broadcast id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get broadcast status' },
     },
     handle(async ({ id }) => jsonResult(await client.getBroadcast(id))),
