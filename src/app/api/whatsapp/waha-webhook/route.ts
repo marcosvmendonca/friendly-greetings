@@ -581,7 +581,7 @@ async function resolveWahaConfig(
   admin: SupabaseClient,
   session: string,
 ): Promise<WahaConfigRow | null> {
-  const select = 'id, account_id, user_id, waha_api_key, waha_session, status';
+  const select = 'id, account_id, user_id, waha_api_key, waha_base_url, waha_session, status';
 
   if (session) {
     const { data, error } = await admin
