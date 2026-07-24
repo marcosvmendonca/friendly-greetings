@@ -353,6 +353,30 @@ export async function sendMessageToConversation(
   }
 
   const attempt = async (phone: string): Promise<string> => {
+    if (provider === 'waha') {
+      const { sendWahaText, sendWahaMedia } = await import(
+        '@/lib/whatsapp/waha-api'
+      );
+      const wahaCfg = {
+        baseUrl: config.waha_base_url as string,
+        apiKey: decrypt(config.waha_api_key as string),
+        session: (config.waha_session as string) || 'default',
+      };
+      if (isMediaKind) {
+        const { id } = await sendWahaMedia(
+          wahaCfg,
+          phone,
+          messageType as 'image' | 'video' | 'document' | 'audio',
+          mediaUrl!,
+          contentText || null,
+          filename || null,
+        );
+        return id;
+      }
+      const { id } = await sendWahaText(wahaCfg, phone, contentText!);
+      return id;
+    }
+
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
