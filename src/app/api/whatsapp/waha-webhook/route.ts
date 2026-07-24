@@ -282,6 +282,11 @@ interface WahaMediaBundle {
   filename: string | null;
 }
 
+interface WahaContactInfo {
+  phone: string | null;
+  displayName: string | null;
+}
+
 function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
   const data = getRecord(msg, '_data');
   const media = getRecord(msg, 'media');
@@ -326,6 +331,18 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         msg.filename,
       ) ?? null,
   };
+}
+
+function extractMediaBundle(value: unknown): WahaMediaBundle {
+  const record = asRecord(value);
+  if (!record) {
+    return { url: null, data: null, mimetype: null, filename: null };
+  }
+  return resolveMediaBundle(record);
+}
+
+function hasMediaBytes(bundle: WahaMediaBundle): boolean {
+  return Boolean(bundle.url || bundle.data);
 }
 
 function mapWahaContentType(type?: string, mimetype?: string | null): string {
@@ -667,7 +684,8 @@ function normalizeMime(mime: string | null | undefined): string | null {
 
 function extForContent(contentType: string, mime: string | null, filename: string | null): string {
   if (filename && /\.[a-z0-9]{2,5}$/i.test(filename)) {
-    return filename.split('.').pop()!.toLowerCase();
+    const ext = filename.split('.').pop();
+    if (ext) return ext.toLowerCase();
   }
   if (mime && MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
   if (contentType === 'sticker') return 'webp';
@@ -675,6 +693,122 @@ function extForContent(contentType: string, mime: string | null, filename: strin
   if (contentType === 'video') return 'mp4';
   if (contentType === 'audio') return 'ogg';
   return 'bin';
+}
+
+function rewriteWahaMediaUrl(url: string, baseUrl: string): string {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0'
+    ) {
+      const base = new URL(baseUrl);
+      parsed.hostname = base.hostname;
+      parsed.protocol = base.protocol;
+      parsed.port = base.port;
+      return parsed.toString();
+    }
+    return url;
+  } catch {
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+}
+
+function mediaFromWahaMessage(value: unknown): WahaMediaBundle {
+  const record = asRecord(value);
+  if (!record) return { url: null, data: null, mimetype: null, filename: null };
+  const direct = getRecord(record, 'media');
+  const data = getRecord(record, '_data');
+  const dataMedia = getRecord(data, 'media');
+  const downloaded = getRecord(record, 'downloadedMedia');
+  const file = getRecord(record, 'file');
+  const candidates = [direct, dataMedia, downloaded, file, record];
+  for (const candidate of candidates) {
+    const bundle = extractMediaBundle(candidate);
+    if (hasMediaBytes(bundle) || bundle.mimetype || bundle.filename) return bundle;
+  }
+  return { url: null, data: null, mimetype: null, filename: null };
+}
+
+async function fetchWahaMessageMediaBundle(
+  normalized: NormalizedWahaMessageFull,
+  baseUrl: string,
+  apiKey: string,
+  session: string,
+): Promise<WahaMediaBundle | null> {
+  const headers = { Accept: 'application/json', 'X-Api-Key': apiKey };
+  const encodedSession = encodeURIComponent(session);
+  const encodedChatId = encodeURIComponent(normalized.chatId);
+  const encodedMessageId = encodeURIComponent(normalized.messageId);
+  const attempts = [
+    `${baseUrl}/api/${encodedSession}/chats/${encodedChatId}/messages/${encodedMessageId}?downloadMedia=true`,
+    `${baseUrl}/api/messages/${encodedMessageId}?session=${encodedSession}&downloadMedia=true`,
+    `${baseUrl}/api/${encodedSession}/messages/${encodedMessageId}?downloadMedia=true`,
+  ];
+
+  for (const url of attempts) {
+    try {
+      const res = await fetch(url, { method: 'GET', headers });
+      if (!res.ok) continue;
+      const payload = await res.json().catch(() => null);
+      const bundle = mediaFromWahaMessage(payload);
+      if (hasMediaBytes(bundle)) return bundle;
+    } catch (err) {
+      console.warn(
+        '[waha-webhook] message media lookup failed',
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return null;
+}
+
+let chatMediaBucketReady = false;
+async function ensureChatMediaBucket(admin: SupabaseClient): Promise<void> {
+  if (chatMediaBucketReady) return;
+  const allowedMimeTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'video/3gpp',
+    'audio/ogg',
+    'audio/mpeg',
+    'audio/mp4',
+    'audio/aac',
+    'audio/wav',
+    'audio/webm',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/zip',
+    'application/octet-stream',
+  ];
+  const options = {
+    public: true,
+    fileSizeLimit: 100 * 1024 * 1024,
+    allowedMimeTypes,
+  };
+  const { data, error } = await admin.storage.getBucket('chat-media');
+  if (error || !data) {
+    const { error: createErr } = await admin.storage.createBucket('chat-media', options);
+    if (createErr) {
+      console.warn('[waha-webhook] chat-media bucket create failed', createErr.message);
+    }
+  } else if (data.public !== true) {
+    const { error: updateErr } = await admin.storage.updateBucket('chat-media', options);
+    if (updateErr) {
+      console.warn('[waha-webhook] chat-media bucket update failed', updateErr.message);
+    }
+  }
+  chatMediaBucketReady = true;
 }
 
 async function fetchWahaMediaBytes(
@@ -686,24 +820,7 @@ async function fetchWahaMediaBytes(
   // server requires it) and rewrite localhost/127.0.0.1 to the
   // configured base URL so container-internal URLs work.
   if (bundle.url) {
-    let url = bundle.url;
-    try {
-      const parsed = new URL(url);
-      if (
-        parsed.hostname === 'localhost' ||
-        parsed.hostname === '127.0.0.1' ||
-        parsed.hostname === '0.0.0.0'
-      ) {
-        const base = new URL(baseUrl);
-        parsed.hostname = base.hostname;
-        parsed.protocol = base.protocol;
-        parsed.port = base.port;
-        url = parsed.toString();
-      }
-    } catch {
-      // relative URL — resolve against baseUrl
-      url = `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
-    }
+    const url = rewriteWahaMediaUrl(bundle.url, baseUrl);
     try {
       const res = await fetch(url, {
         method: 'GET',
@@ -744,18 +861,36 @@ async function storeWahaMedia(
   wahaBaseUrl: string,
 ): Promise<string | null> {
   if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) return null;
-  const apiKey = config.waha_api_key ? (() => {
-    try { return decrypt(config.waha_api_key!); } catch { return ''; }
-  })() : '';
+  let apiKey = '';
+  if (config.waha_api_key) {
+    try {
+      apiKey = decrypt(config.waha_api_key);
+    } catch (err) {
+      console.warn('[waha-webhook] WAHA api key decrypt failed', err instanceof Error ? err.message : err);
+    }
+  }
   if (!apiKey && !normalized.bundle.data) return null;
 
-  const fetched = await fetchWahaMediaBytes(normalized.bundle, wahaBaseUrl, apiKey);
+  let bundle = normalized.bundle;
+  if (!hasMediaBytes(bundle) && apiKey) {
+    const lookedUp = await fetchWahaMessageMediaBundle(
+      normalized,
+      wahaBaseUrl,
+      apiKey,
+      config.waha_session ?? 'default',
+    );
+    if (lookedUp) bundle = lookedUp;
+  }
+
+  const fetched = await fetchWahaMediaBytes(bundle, wahaBaseUrl, apiKey);
   if (!fetched || fetched.bytes.byteLength === 0) return null;
 
   const mime = fetched.mime ?? normalizeMime(normalized.mimetype) ?? 'application/octet-stream';
   const ext = extForContent(normalized.contentType, mime, normalized.filename);
   const safeId = normalized.messageId.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 80);
   const path = `account-${config.account_id}/waha-${safeId}.${ext}`;
+
+  await ensureChatMediaBucket(admin);
 
   const { error: upErr } = await admin.storage
     .from('chat-media')
@@ -770,6 +905,48 @@ async function storeWahaMedia(
   }
   const { data } = admin.storage.from('chat-media').getPublicUrl(path);
   return data.publicUrl ?? null;
+}
+
+async function fetchWahaContactInfo(
+  config: WahaConfigRow,
+  chatId: string,
+  fallbackPhone: string,
+  fallbackName: string | null,
+): Promise<WahaContactInfo> {
+  const baseUrl = config.waha_base_url?.replace(/\/+$/, '');
+  let apiKey = '';
+  if (config.waha_api_key) {
+    try {
+      apiKey = decrypt(config.waha_api_key);
+    } catch {
+      apiKey = '';
+    }
+  }
+  if (!baseUrl || !apiKey) return { phone: fallbackPhone, displayName: fallbackName };
+
+  const params = new URLSearchParams({
+    contactId: chatId,
+    session: config.waha_session ?? 'default',
+  });
+  try {
+    const res = await fetch(`${baseUrl}/api/contacts?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
+    });
+    if (!res.ok) return { phone: fallbackPhone, displayName: fallbackName };
+    const json = (await res.json().catch(() => null)) as JsonRecord | null;
+    const number = firstString(json?.number, json?.phone, json?.id);
+    const digits = number?.replace(/\D/g, '') || fallbackPhone;
+    const displayName =
+      firstString(json?.name, json?.pushname, json?.pushName, json?.shortName, fallbackName) ?? null;
+    return {
+      phone: digits ? normalizePhone(`+${digits}`) : fallbackPhone,
+      displayName,
+    };
+  } catch (err) {
+    console.warn('[waha-webhook] contact lookup failed', err instanceof Error ? err.message : err);
+    return { phone: fallbackPhone, displayName: fallbackName };
+  }
 }
 
 export async function POST(request: Request) {
@@ -855,11 +1032,28 @@ export async function POST(request: Request) {
   // pushName as the initial display name so the inbox stops showing raw
   // phone numbers, and enrich existing rows on subsequent messages.
   const pushName = extractPushName(body);
-  const initialName = pushName?.trim() || normalized.phone;
-  const existing = await findExistingContact(admin, config.account_id, normalized.phone);
+  const contactInfo = await fetchWahaContactInfo(config, normalized.chatId, normalized.phone, pushName);
+  const contactPhone = contactInfo.phone || normalized.phone;
+  const initialName = contactInfo.displayName?.trim() || contactPhone;
+  const existingByPhone = await findExistingContact(admin, config.account_id, contactPhone);
+  const existingByChatIdPhone =
+    contactPhone !== normalized.phone
+      ? await findExistingContact(admin, config.account_id, normalized.phone)
+      : null;
+  const existing = existingByPhone ?? existingByChatIdPhone;
   let contactId: string | undefined = existing?.id;
   let existingName: string | null = (existing?.name as string | null) ?? null;
   let existingAvatar: string | null = (existing?.avatar_url as string | null) ?? null;
+
+  if (existingByChatIdPhone && !existingByPhone && contactPhone !== normalized.phone) {
+    const { error: phoneUpdateErr } = await admin
+      .from('contacts')
+      .update({ phone: contactPhone, updated_at: new Date().toISOString() })
+      .eq('id', existingByChatIdPhone.id);
+    if (phoneUpdateErr) {
+      console.warn('[waha-webhook] contact phone update failed:', phoneUpdateErr.message);
+    }
+  }
 
   if (!contactId) {
     const { data: inserted, error: insertErr } = await admin
@@ -867,7 +1061,7 @@ export async function POST(request: Request) {
       .insert({
         account_id: config.account_id,
         user_id: config.user_id,
-        phone: normalized.phone,
+        phone: contactPhone,
         name: initialName,
       })
       .select('id, name, avatar_url')
@@ -881,7 +1075,7 @@ export async function POST(request: Request) {
       existingName = (inserted.name as string | null) ?? initialName;
       existingAvatar = (inserted.avatar_url as string | null) ?? null;
     } else {
-      const raced = await findExistingContact(admin, config.account_id, normalized.phone);
+      const raced = await findExistingContact(admin, config.account_id, contactPhone);
       contactId = raced?.id;
       existingName = (raced?.name as string | null) ?? null;
       existingAvatar = (raced?.avatar_url as string | null) ?? null;
@@ -897,9 +1091,9 @@ export async function POST(request: Request) {
     contactId,
     existingName,
     existingAvatar,
-    normalized.phone,
+    contactPhone,
     normalized.chatId,
-    pushName,
+    contactInfo.displayName ?? pushName,
   );
 
   // Find-or-create conversation.
