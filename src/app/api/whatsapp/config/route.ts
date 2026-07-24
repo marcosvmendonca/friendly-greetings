@@ -370,6 +370,7 @@ export async function POST(request: Request) {
     // store the credentials and the error so the UI can guide the
     // user through a retry.
     const baseRow = {
+      provider: 'meta' as const,
       phone_number_id,
       waba_id: waba_id || null,
       access_token: encryptedAccessToken,
@@ -379,6 +380,11 @@ export async function POST(request: Request) {
       registered_at: registrationError ? null : registeredAt,
       subscribed_apps_at: subscribedAppsAt ?? null,
       last_registration_error: registrationError,
+      // Switching back to Meta clears any prior WAHA credentials so
+      // the two providers don't coexist on the same row.
+      waha_base_url: null,
+      waha_api_key: null,
+      waha_session: null,
       updated_at: new Date().toISOString(),
     }
 
