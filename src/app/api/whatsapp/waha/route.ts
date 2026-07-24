@@ -290,3 +290,54 @@ export async function DELETE() {
   await supabase.from('whatsapp_config').delete().eq('account_id', accountId);
   return NextResponse.json({ success: true });
 }
+
+/**
+ * PATCH → reapply webhook + restart session on WAHA without touching
+ * stored credentials. Useful when the app URL changed (new deployment
+ * domain) or the WAHA session got stuck.
+ */
+export async function PATCH(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const accountId = await resolveAccountId(supabase, user.id);
+  if (!accountId) return NextResponse.json({ error: 'Sem conta.' }, { status: 403 });
+
+  const { data: row } = await supabase
+    .from('whatsapp_config')
+    .select('waha_base_url, waha_api_key, waha_session, provider')
+    .eq('account_id', accountId)
+    .maybeSingle();
+
+  if (!row || row.provider !== 'waha') {
+    return NextResponse.json({ error: 'WAHA não configurado.' }, { status: 400 });
+  }
+
+  let cfg: WahaConfig;
+  try {
+    cfg = buildWahaConfigFromRow(row);
+  } catch {
+    return NextResponse.json({ error: 'Chave corrompida.' }, { status: 400 });
+  }
+
+  const webhookUrl = resolveWebhookUrl(request);
+  try {
+    // Stop then start to force WAHA to pick up the new webhook config.
+    await stopWahaSession(cfg).catch(() => undefined);
+    await startWahaSession(cfg, webhookUrl);
+    return NextResponse.json({ success: true, webhook_url: webhookUrl });
+  } catch (err) {
+    const msg =
+      err instanceof WahaApiError
+        ? `WAHA ${err.status}: ${err.body.slice(0, 200)}`
+        : err instanceof Error
+          ? err.message
+          : 'Erro desconhecido';
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
