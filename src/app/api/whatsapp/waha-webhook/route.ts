@@ -623,6 +623,153 @@ async function resolveWahaConfig(
   return null;
 }
 
+// ============================================================
+// Media persistence — download incoming WAHA media and re-host it in
+// the `chat-media` Storage bucket so the browser gets a stable public
+// URL that doesn't require the WAHA api key. This is what makes
+// received images, stickers, audio, video and documents actually
+// render in the inbox (WAHA's own media URLs are on the internal
+// container network and require X-Api-Key headers, so a raw <img>
+// tag in the browser can't reach them).
+// ============================================================
+
+const MIME_TO_EXT: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+  'video/3gpp': '3gp',
+  'audio/ogg': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/wav': 'wav',
+  'audio/webm': 'webm',
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/zip': 'zip',
+};
+
+function normalizeMime(mime: string | null | undefined): string | null {
+  if (!mime) return null;
+  const cleaned = mime.split(';')[0]?.trim().toLowerCase();
+  return cleaned || null;
+}
+
+function extForContent(contentType: string, mime: string | null, filename: string | null): string {
+  if (filename && /\.[a-z0-9]{2,5}$/i.test(filename)) {
+    return filename.split('.').pop()!.toLowerCase();
+  }
+  if (mime && MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
+  if (contentType === 'sticker') return 'webp';
+  if (contentType === 'image') return 'jpg';
+  if (contentType === 'video') return 'mp4';
+  if (contentType === 'audio') return 'ogg';
+  return 'bin';
+}
+
+async function fetchWahaMediaBytes(
+  bundle: WahaMediaBundle,
+  baseUrl: string,
+  apiKey: string,
+): Promise<{ bytes: Uint8Array; mime: string | null } | null> {
+  // Preferred: WAHA gave us a URL. Fetch with X-Api-Key (WAHA's media
+  // server requires it) and rewrite localhost/127.0.0.1 to the
+  // configured base URL so container-internal URLs work.
+  if (bundle.url) {
+    let url = bundle.url;
+    try {
+      const parsed = new URL(url);
+      if (
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1' ||
+        parsed.hostname === '0.0.0.0'
+      ) {
+        const base = new URL(baseUrl);
+        parsed.hostname = base.hostname;
+        parsed.protocol = base.protocol;
+        parsed.port = base.port;
+        url = parsed.toString();
+      }
+    } catch {
+      // relative URL — resolve against baseUrl
+      url = `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+    }
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'X-Api-Key': apiKey },
+      });
+      if (!res.ok) {
+        console.warn('[waha-webhook] media fetch failed', { url, status: res.status });
+        return null;
+      }
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const mime = normalizeMime(res.headers.get('content-type')) ?? normalizeMime(bundle.mimetype);
+      return { bytes: buf, mime };
+    } catch (err) {
+      console.warn('[waha-webhook] media fetch threw', err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  // Fallback: base64 inline payload.
+  if (bundle.data) {
+    try {
+      const raw = bundle.data.replace(/^data:[^;]+;base64,/, '');
+      const buf = Uint8Array.from(Buffer.from(raw, 'base64'));
+      return { bytes: buf, mime: normalizeMime(bundle.mimetype) };
+    } catch (err) {
+      console.warn('[waha-webhook] base64 decode failed', err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+async function storeWahaMedia(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  normalized: NormalizedWahaMessageFull,
+  wahaBaseUrl: string,
+): Promise<string | null> {
+  if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) return null;
+  const apiKey = config.waha_api_key ? (() => {
+    try { return decrypt(config.waha_api_key!); } catch { return ''; }
+  })() : '';
+  if (!apiKey && !normalized.bundle.data) return null;
+
+  const fetched = await fetchWahaMediaBytes(normalized.bundle, wahaBaseUrl, apiKey);
+  if (!fetched || fetched.bytes.byteLength === 0) return null;
+
+  const mime = fetched.mime ?? normalizeMime(normalized.mimetype) ?? 'application/octet-stream';
+  const ext = extForContent(normalized.contentType, mime, normalized.filename);
+  const safeId = normalized.messageId.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 80);
+  const path = `account-${config.account_id}/waha-${safeId}.${ext}`;
+
+  const { error: upErr } = await admin.storage
+    .from('chat-media')
+    .upload(path, fetched.bytes, {
+      contentType: mime,
+      upsert: true,
+      cacheControl: '86400',
+    });
+  if (upErr) {
+    console.warn('[waha-webhook] storage upload failed', upErr.message);
+    return null;
+  }
+  const { data } = admin.storage.from('chat-media').getPublicUrl(path);
+  return data.publicUrl ?? null;
+}
+
 export async function POST(request: Request) {
   let body: WahaWebhookPayload;
   try {
