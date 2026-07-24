@@ -1,8 +1,11 @@
 'use client';
 
+'use client';
+
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Loader2, QrCode, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { Loader2, QrCode, CheckCircle2, XCircle, Trash2, Copy, RefreshCw } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
