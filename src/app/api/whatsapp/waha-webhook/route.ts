@@ -70,12 +70,27 @@ export async function POST(request: Request) {
   // Resolve tenant by session name.
   const { data: config } = await admin
     .from('whatsapp_config')
-    .select('id, account_id, user_id, waha_api_key')
+    .select('id, account_id, user_id, waha_api_key, status')
     .eq('provider', 'waha')
     .eq('waha_session', session)
     .maybeSingle();
 
   if (!config?.account_id) return NextResponse.json({ ok: true });
+
+  // First inbound message proves the WAHA session is live end-to-end.
+  // Flip status→connected so the inbox banner clears immediately,
+  // even before the user revisits the settings page (which is what
+  // normally triggers the GET-based status refresh).
+  if (config.status !== 'connected') {
+    await admin
+      .from('whatsapp_config')
+      .update({
+        status: 'connected',
+        connected_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', config.id);
+  }
 
   // Optional API-key check (WAHA can forward it as a header).
   const incomingKey = request.headers.get('x-api-key');
