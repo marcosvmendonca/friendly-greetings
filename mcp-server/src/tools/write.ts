@@ -51,7 +51,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
           .string()
           .optional()
           .describe('Optional id of a message in the same conversation to reply to.'),
-      },
+      } as never,
       annotations: { title: 'Send WhatsApp message', readOnlyHint: false, openWorldHint: true },
     },
     handle(async (args) => jsonResult(await client.sendMessage(args))),
@@ -69,7 +69,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
         email: z.string().email().optional(),
         company: z.string().optional(),
         tags: z.array(z.string()).optional().describe('Tag names; created if they do not exist.'),
-      },
+      } as never,
       annotations: { title: 'Create contact', readOnlyHint: false, openWorldHint: true },
     },
     handle(async (args) => jsonResult(await client.createContact(args))),
@@ -87,7 +87,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
         email: z.string().email().optional(),
         company: z.string().optional(),
         tags: z.array(z.string()).optional().describe('Replaces the contact’s tags.'),
-      },
+      } as never,
       annotations: { title: 'Update contact', readOnlyHint: false, openWorldHint: true },
     },
     handle(async ({ id, ...body }) => jsonResult(await client.updateContact(id, body))),

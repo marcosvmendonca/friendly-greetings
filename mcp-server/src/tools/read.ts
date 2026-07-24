@@ -21,7 +21,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
       title: 'Who am I',
       description:
         'Verify the API key and show which wacrm account it is bound to and what scopes it carries. Call this first to discover what actions are possible.',
-      inputSchema: {},
+      inputSchema: {} as never,
       annotations: { ...READ_ONLY, title: 'Who am I' },
     },
     handle(async () => jsonResult(await client.me())),
@@ -44,7 +44,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
           .optional()
           .describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor from a previous response.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List contacts' },
     },
     handle(async (args) => jsonResult(await client.listContacts(args))),
@@ -57,7 +57,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
       description: 'Read a single contact by its id.',
       inputSchema: {
         id: z.string().describe('Contact id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get contact' },
     },
     handle(async ({ id }) => jsonResult(await client.getContact(id))),
@@ -74,7 +74,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         contact_id: z.string().optional().describe('Only conversations for this contact.'),
         limit: z.number().int().min(1).max(100).optional().describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List conversations' },
     },
     handle(async (args) => jsonResult(await client.listConversations(args))),
@@ -87,7 +87,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
       description: 'Read a single conversation by id, including its contact and tags.',
       inputSchema: {
         id: z.string().describe('Conversation id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get conversation' },
     },
     handle(async ({ id }) => jsonResult(await client.getConversation(id))),
@@ -103,7 +103,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         conversation_id: z.string().describe('The conversation to read messages from.'),
         limit: z.number().int().min(1).max(100).optional().describe('Page size, 1–100 (default 50).'),
         cursor: z.string().optional().describe('Opaque pagination cursor.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'List messages' },
     },
     handle(async ({ conversation_id, limit, cursor }) =>

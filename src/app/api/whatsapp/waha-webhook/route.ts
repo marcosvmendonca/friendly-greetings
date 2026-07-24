@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
   const phone = normalizePhone(`+${digits}`);
   const contentText = msg.body ?? '';
-  const messageType = msg.type === 'chat' ? 'text' : (msg.type ?? 'text');
+  const messageType = mapWahaContentType(msg.type);
   const whatsappMessageId = msg.id ?? `waha_${Date.now()}`;
 
   // Find-or-create contact within the account.
