@@ -318,7 +318,8 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
   if (!digits) return null;
 
-  const rawType = getString(msg, 'type') ?? getString(data, 'type') ?? 'chat';
+  const rawType = (getString(msg, 'type') ?? getString(data, 'type') ?? 'chat').toLowerCase();
+  if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const contentText = resolveMessageBody(msg);
   return {
@@ -332,6 +333,142 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
     createdAt,
     rawType,
   };
+}
+
+function extractPushName(body: WahaWebhookPayload): string | null {
+  const root = body as JsonRecord;
+  const msg =
+    asRecord(root.payload) ??
+    asRecord(root.message) ??
+    asRecord(root.data);
+  if (!msg) return null;
+  const data = getRecord(msg, '_data');
+  const notify = getRecord(data, 'notifyName');
+  return (
+    firstString(
+      msg.pushName,
+      msg.notifyName,
+      msg._pushName,
+      data?.pushName,
+      data?.notifyName,
+      notify?.formattedName,
+    ) ?? null
+  );
+}
+
+async function fetchWahaProfilePicture(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  chatId: string,
+): Promise<string | null> {
+  try {
+    const { data: row } = await admin
+      .from('whatsapp_config')
+      .select('waha_base_url')
+      .eq('id', config.id)
+      .maybeSingle();
+    const baseUrl = (row?.waha_base_url as string | null)?.replace(/\/+$/, '');
+    const apiKey = config.waha_api_key ? decrypt(config.waha_api_key) : null;
+    if (!baseUrl || !apiKey) return null;
+    const params = new URLSearchParams({
+      contactId: chatId,
+      session: config.waha_session ?? 'default',
+    });
+    const res = await fetch(`${baseUrl}/api/contacts/profile-picture?${params.toString()}`, {
+      method: 'GET',
+      headers: { 'X-Api-Key': apiKey, Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json().catch(() => null)) as
+      | { profilePictureURL?: string; url?: string }
+      | null;
+    return json?.profilePictureURL ?? json?.url ?? null;
+  } catch (err) {
+    console.warn('[waha-webhook] profile-picture fetch failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+async function enrichContact(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  contactId: string,
+  currentName: string | null,
+  currentAvatar: string | null,
+  currentPhone: string,
+  chatId: string,
+  pushName: string | null,
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  // Only override the name when it's still the raw phone (auto-created).
+  const nameIsAuto = !currentName || currentName === currentPhone || currentName.trim() === '';
+  if (pushName && nameIsAuto) patch.name = pushName;
+  if (!currentAvatar) {
+    const avatar = await fetchWahaProfilePicture(admin, config, chatId);
+    if (avatar) patch.avatar_url = avatar;
+  }
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await admin.from('contacts').update(patch).eq('id', contactId);
+  if (error) console.warn('[waha-webhook] contact enrich failed:', error.message);
+}
+
+async function handleWahaReaction(
+  admin: SupabaseClient,
+  config: WahaConfigRow,
+  body: WahaWebhookPayload,
+): Promise<void> {
+  const root = body as JsonRecord;
+  const msg =
+    asRecord(root.payload) ??
+    asRecord(root.message) ??
+    asRecord(root.data);
+  if (!msg) return;
+  const reaction = getRecord(msg, 'reaction');
+  const emoji = getString(reaction, 'text') ?? getString(msg, 'reactionText') ?? '';
+  const targetId =
+    extractSerialized(reaction?.messageId) ??
+    extractSerialized(reaction?.id) ??
+    extractSerialized(msg.reactionMessageId);
+  const chatId = resolveSenderChatId(msg);
+  if (!targetId || !chatId) return;
+  const normalizedTarget = normalizeWahaMessageId(targetId);
+  const fromMe =
+    getBoolean(msg, 'fromMe') ??
+    getBoolean(getRecord(msg, 'id'), 'fromMe') ??
+    false;
+  if (fromMe) return; // agent-side reactions are written by /api/whatsapp/react
+
+  // Find the target message.
+  const { data: targetMsg } = await admin
+    .from('messages')
+    .select('id, conversation_id, conversations!inner(contact_id, account_id)')
+    .eq('message_id', normalizedTarget)
+    .limit(1)
+    .maybeSingle();
+  const target = targetMsg as
+    | { id: string; conversation_id: string; conversations: { contact_id: string; account_id: string } }
+    | null;
+  if (!target || target.conversations.account_id !== config.account_id) return;
+
+  if (!emoji) {
+    await admin
+      .from('message_reactions')
+      .delete()
+      .eq('message_id', target.id)
+      .eq('actor_type', 'customer')
+      .eq('actor_id', target.conversations.contact_id);
+    return;
+  }
+  await admin.from('message_reactions').upsert(
+    {
+      message_id: target.id,
+      conversation_id: target.conversation_id,
+      actor_type: 'customer',
+      actor_id: target.conversations.contact_id,
+      emoji,
+    },
+    { onConflict: 'message_id,actor_type,actor_id' },
+  );
 }
 
 async function resolveWahaConfig(
