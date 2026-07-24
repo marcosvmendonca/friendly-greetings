@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
+import { sendWahaReaction } from '@/lib/whatsapp/waha-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
@@ -14,9 +15,10 @@ import {
  *
  * Body: { message_id: <internal UUID>, emoji: <single emoji or "" to remove> }
  *
- * Sends the reaction to Meta and mirrors it into `message_reactions`
- * (delete on empty emoji). Customer-side reactions are handled by the
- * webhook — this route only writes `actor_type = 'agent'` rows.
+ * Dispatches to Meta or WAHA depending on the account's active provider,
+ * then mirrors the reaction into `message_reactions` (delete on empty
+ * emoji). Customer-side reactions are handled by the webhook — this route
+ * only writes `actor_type = 'agent'` rows.
  */
 export async function POST(request: Request) {
   try {
@@ -36,8 +38,6 @@ export async function POST(request: Request) {
       return rateLimitResponse(limit);
     }
 
-    // Resolve the caller's account_id so conversation + whatsapp_config
-    // lookups work for teammates who didn't author the rows directly.
     const { data: profile } = await supabase
       .from('profiles')
       .select('account_id')
@@ -64,7 +64,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Resolve target message + its conversation; verify ownership.
     const { data: targetMessage, error: msgError } = await supabase
       .from('messages')
       .select('id, message_id, conversation_id')
@@ -76,8 +75,6 @@ export async function POST(request: Request) {
     }
 
     if (!targetMessage.message_id) {
-      // No Meta ID yet — usually a sending/failed agent message. We can't
-      // tell Meta to react to a message it never received.
       return NextResponse.json(
         { error: 'Cannot react to a message that has not been sent to WhatsApp' },
         { status: 400 },
@@ -108,10 +105,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token')
+      .select('*')
       .eq('account_id', accountId)
       .single();
 
@@ -122,28 +118,46 @@ export async function POST(request: Request) {
       );
     }
 
-    const accessToken = decrypt(config.access_token);
-    const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
+    const provider = (config.provider as 'meta' | 'waha' | undefined) ?? 'meta';
 
     try {
-      await sendReactionMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
-        to: sanitizedPhone,
-        targetMessageId: targetMessage.message_id,
-        emoji,
-      });
+      if (provider === 'waha') {
+        if (!config.waha_base_url || !config.waha_api_key) {
+          return NextResponse.json(
+            { error: 'WAHA config incompleta. Reconecte em Settings → WhatsApp.' },
+            { status: 400 },
+          );
+        }
+        await sendWahaReaction(
+          {
+            baseUrl: config.waha_base_url as string,
+            apiKey: decrypt(config.waha_api_key as string),
+            session: (config.waha_session as string) || 'default',
+          },
+          targetMessage.message_id,
+          emoji,
+        );
+      } else {
+        const accessToken = decrypt(config.access_token);
+        const sanitizedPhone = sanitizePhoneForMeta(contact.phone);
+        await sendReactionMessage({
+          phoneNumberId: config.phone_number_id,
+          accessToken,
+          to: sanitizedPhone,
+          targetMessageId: targetMessage.message_id,
+          emoji,
+        });
+      }
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Unknown Meta API error';
-      console.error('[whatsapp/react] Meta send failed:', message);
+        err instanceof Error ? err.message : 'Unknown provider error';
+      console.error(`[whatsapp/react] ${provider} send failed:`, message);
       return NextResponse.json(
-        { error: `Meta API error: ${message}` },
+        { error: `${provider === 'waha' ? 'WAHA' : 'Meta'} error: ${message}` },
         { status: 502 },
       );
     }
 
-    // Mirror into DB. Empty emoji = removal.
     if (emoji === '') {
       const { error: delError } = await supabase
         .from('message_reactions')
@@ -155,13 +169,11 @@ export async function POST(request: Request) {
       if (delError) {
         console.error('[whatsapp/react] DB delete failed:', delError.message);
         return NextResponse.json(
-          { error: 'Reaction sent to Meta but DB delete failed' },
+          { error: 'Reaction sent but DB delete failed' },
           { status: 500 },
         );
       }
     } else {
-      // Upsert. The unique constraint (message_id, actor_type, actor_id)
-      // lets us swap emoji in a single statement.
       const { error: upsertError } = await supabase.from('message_reactions').upsert(
         {
           message_id: targetMessage.id,
@@ -176,7 +188,7 @@ export async function POST(request: Request) {
       if (upsertError) {
         console.error('[whatsapp/react] DB upsert failed:', upsertError.message);
         return NextResponse.json(
-          { error: 'Reaction sent to Meta but DB upsert failed' },
+          { error: 'Reaction sent but DB upsert failed' },
           { status: 500 },
         );
       }
@@ -184,9 +196,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error in WhatsApp react POST:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Error in WhatsApp react POST:', message);
     return NextResponse.json(
-      { error: 'Failed to react to message' },
+      { error: `Failed to react: ${message}` },
       { status: 500 },
     );
   }
