@@ -269,26 +269,70 @@ function resolveMessageBody(msg: JsonRecord): string {
   );
 }
 
-function resolveMediaUrl(msg: JsonRecord): string | null {
+interface WahaMediaBundle {
+  /** Absolute URL served by the WAHA instance (needs X-Api-Key). */
+  url: string | null;
+  /** Base64 payload when WAHA inlined the media directly. */
+  data: string | null;
+  /** e.g. `image/jpeg`, may include codec params. */
+  mimetype: string | null;
+  /** Filename WAHA reports (documents mostly). */
+  filename: string | null;
+}
+
+function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
   const data = getRecord(msg, '_data');
   const media = getRecord(msg, 'media');
   const file = getRecord(msg, 'file');
-  return (
-    firstString(
-      msg.mediaUrl,
-      msg.downloadUrl,
-      media?.url,
-      file?.url,
-      data?.mediaUrl,
-      data?.deprecatedMms3Url,
-    ) ?? null
-  );
+  const dataMedia = getRecord(data, 'media');
+  return {
+    url:
+      firstString(
+        msg.mediaUrl,
+        msg.downloadUrl,
+        media?.url,
+        file?.url,
+        dataMedia?.url,
+        data?.mediaUrl,
+        data?.deprecatedMms3Url,
+      ) ?? null,
+    data:
+      firstString(
+        media?.data,
+        file?.data,
+        dataMedia?.data,
+        msg.mediaData,
+      ) ?? null,
+    mimetype:
+      firstString(
+        media?.mimetype,
+        media?.mimeType,
+        file?.mimetype,
+        file?.mimeType,
+        dataMedia?.mimetype,
+        data?.mimetype,
+        msg.mimetype,
+      ) ?? null,
+    filename:
+      firstString(
+        media?.filename,
+        media?.fileName,
+        file?.filename,
+        file?.name,
+        dataMedia?.filename,
+        data?.filename,
+        msg.filename,
+      ) ?? null,
+  };
 }
 
-function mapWahaContentType(type?: string): string {
-  if (!type || type === 'chat') return 'text';
-  if (type === 'ptt') return 'audio';
-  if (type === 'sticker') return 'sticker';
+function mapWahaContentType(type?: string, mimetype?: string | null): string {
+  const t = (type ?? '').toLowerCase();
+  if (!t || t === 'chat') return 'text';
+  if (t === 'ptt' || t === 'voice') return 'audio';
+  if (t === 'sticker') return 'sticker';
+  if (t === 'gif' || t === 'animation') return 'video';
+  if (t === 'documentwithcaption') return 'document';
 
   const allowed = new Set([
     'text',
@@ -301,8 +345,15 @@ function mapWahaContentType(type?: string): string {
     'interactive',
     'sticker',
   ]);
+  if (allowed.has(t)) return t;
 
-  return allowed.has(type) ? type : 'text';
+  // Fallback via mimetype when WAHA reports a generic type
+  const mime = (mimetype ?? '').toLowerCase().split(';')[0]?.trim() ?? '';
+  if (mime.startsWith('image/')) return mime === 'image/webp' ? 'sticker' : 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime) return 'document';
+  return 'text';
 }
 
 const MEDIA_CONTENT_TYPES = new Set(['image', 'video', 'audio', 'document', 'sticker']);
@@ -325,7 +376,13 @@ const IGNORED_WAHA_TYPES = new Set([
   'broadcast_notification',
 ]);
 
-function normalizeWahaMessage(body: WahaWebhookPayload, session: string): NormalizedWahaMessage | null {
+interface NormalizedWahaMessageFull extends NormalizedWahaMessage {
+  bundle: WahaMediaBundle;
+  filename: string | null;
+  mimetype: string | null;
+}
+
+function normalizeWahaMessage(body: WahaWebhookPayload, session: string): NormalizedWahaMessageFull | null {
   const root = body as JsonRecord;
   const msg =
     asRecord(root.payload) ??
@@ -351,17 +408,21 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   const rawType = (getString(msg, 'type') ?? getString(data, 'type') ?? 'chat').toLowerCase();
   if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
-  const contentText = resolveMessageBody(msg);
-  const contentType = mapWahaContentType(rawType);
-  let mediaUrl = resolveMediaUrl(msg);
-  const messageId = resolveMessageId(msg, session, chatId, createdAt);
-  // If it's a media type and WAHA didn't include a public URL in the
-  // webhook payload (default when downloadMedia isn't enabled), fall
-  // back to our own proxy — it fetches the binary via WAHA on demand
-  // using the tenant's stored api key.
-  if (!mediaUrl && MEDIA_CONTENT_TYPES.has(contentType)) {
-    mediaUrl = `/api/whatsapp/waha-media/${encodeURIComponent(messageId)}`;
+  const bundle = resolveMediaBundle(msg);
+  const contentType = mapWahaContentType(rawType, bundle.mimetype);
+  let contentText = resolveMessageBody(msg);
+  // For documents, prefer the filename as visible label when no caption
+  // was provided — otherwise the bubble would render just an icon.
+  if (contentType === 'document' && !contentText && bundle.filename) {
+    contentText = bundle.filename;
   }
+  const messageId = resolveMessageId(msg, session, chatId, createdAt);
+  // Media URL is resolved AFTER insert by downloading from WAHA and
+  // uploading to Supabase Storage. If the download fails, we fall back
+  // to the on-demand proxy path.
+  const mediaUrl = MEDIA_CONTENT_TYPES.has(contentType)
+    ? `/api/whatsapp/waha-media/${encodeURIComponent(messageId)}`
+    : null;
   return {
     chatId,
     phone: normalizePhone(`+${digits}`),
@@ -372,8 +433,12 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
     mediaUrl,
     createdAt,
     rawType,
+    bundle,
+    filename: bundle.filename,
+    mimetype: bundle.mimetype,
   };
 }
+
 
 function extractPushName(body: WahaWebhookPayload): string | null {
   const root = body as JsonRecord;
