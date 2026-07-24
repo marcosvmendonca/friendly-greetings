@@ -149,6 +149,15 @@ function isOneToOneChatId(chatId: string): boolean {
   );
 }
 
+function isGroupOrBroadcast(value: string): boolean {
+  return (
+    value.includes('@g.us') ||
+    value.includes('@broadcast') ||
+    value.includes('@newsletter') ||
+    value.includes('status@')
+  );
+}
+
 function resolveSenderChatId(msg: JsonRecord): string | null {
   const data = getRecord(msg, '_data');
   const id = getRecord(msg, 'id');
@@ -156,6 +165,31 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const key = getRecord(msg, 'key');
   const dataKey = getRecord(data, 'key');
   const sender = getRecord(msg, 'sender');
+
+  // Any of these boolean/string markers means the payload is a group,
+  // status broadcast, newsletter, or channel message — never a real 1:1.
+  if (
+    getBoolean(msg, 'isGroupMsg') === true ||
+    getBoolean(msg, 'isGroup') === true ||
+    getBoolean(msg, 'isStatus') === true ||
+    getBoolean(msg, 'broadcast') === true ||
+    getBoolean(data, 'isGroupMsg') === true ||
+    getBoolean(data, 'isGroup') === true ||
+    getBoolean(data, 'isStatus') === true ||
+    getBoolean(data, 'broadcast') === true
+  ) {
+    return null;
+  }
+  // The `participant` field is only populated by WhatsApp on group
+  // messages (it distinguishes who inside the group spoke). If it's set,
+  // we're looking at a group message even if `from` looks like a 1:1 jid.
+  const hasParticipant =
+    Boolean(getString(key, 'participant')) ||
+    Boolean(getString(dataKey, 'participant')) ||
+    Boolean(getString(msg, 'participant')) ||
+    Boolean(getString(data, 'participant'));
+  if (hasParticipant) return null;
+
   const candidates = [
     msg.from,
     msg.chatId,
@@ -170,9 +204,7 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
     dataId?.remote,
     dataId?.remoteJid,
     key?.remoteJid,
-    key?.participant,
     dataKey?.remoteJid,
-    dataKey?.participant,
     sender?.id,
     sender?.jid,
     id,
@@ -186,12 +218,10 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const chatIds = candidates
     .map(extractChatId)
     .filter((value): value is string => Boolean(value));
-  // If any candidate reveals this is a group chat, reject entirely —
-  // group threads have both `remoteJid=@g.us` and `participant=@s.whatsapp.net`,
-  // so picking the participant would leak the group message into a fake 1:1.
-  if (chatIds.some((value) => value.endsWith('@g.us') || value.includes('@g.us'))) {
-    return null;
-  }
+  // If any candidate reveals this is a group/broadcast/status/newsletter
+  // chat, reject entirely — never pick a participant jid and promote it
+  // to a fake 1:1 conversation.
+  if (chatIds.some(isGroupOrBroadcast)) return null;
   const oneToOne = chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
   return oneToOne ? normalizeWahaChatId(oneToOne) : null;
 }
