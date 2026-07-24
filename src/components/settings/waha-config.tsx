@@ -209,16 +209,47 @@ export function WahaConfigPanel() {
               <div>
                 <strong>Sessão:</strong> {session}
               </div>
+              {webhookUrl && (
+                <div className="flex items-center gap-2 pt-1">
+                  <strong>Webhook:</strong>
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{webhookUrl}</code>
+                  <button
+                    type="button"
+                    onClick={copyWebhook}
+                    className="text-primary hover:underline"
+                    title="Copiar"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handleDisconnect}
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Desconectar
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRestart}
+                disabled={restarting}
+              >
+                {restarting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Reiniciar sessão
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDisconnect}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Desconectar
+              </Button>
+            </div>
           </CardContent>
+
         </Card>
       )}
 
