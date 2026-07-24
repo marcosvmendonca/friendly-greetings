@@ -331,6 +331,28 @@ export async function sendMessageToConversation(
     }
   }
 
+  let wahaPreferredChatId: string | undefined;
+  if (provider === 'waha') {
+    const { data: latestInbound } = await db
+      .from('messages')
+      .select('message_id')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'customer')
+      .not('message_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const rawMessageId =
+      typeof latestInbound?.message_id === 'string'
+        ? latestInbound.message_id
+        : undefined;
+    if (rawMessageId) {
+      const { extractWahaChatId } = await import('@/lib/whatsapp/waha-api');
+      wahaPreferredChatId = extractWahaChatId(rawMessageId) ?? undefined;
+    }
+  }
+
   // Template row (for header + button components). isMessageTemplate
   // guards against a malformed local row crashing the send-builder.
   let templateRow: MessageTemplate | null = null;
@@ -370,10 +392,16 @@ export async function sendMessageToConversation(
           mediaUrl!,
           contentText || null,
           filename || null,
+          wahaPreferredChatId,
         );
         return id;
       }
-      const { id } = await sendWahaText(wahaCfg, phone, contentText!);
+      const { id } = await sendWahaText(
+        wahaCfg,
+        phone,
+        contentText!,
+        wahaPreferredChatId,
+      );
       return id;
     }
 
