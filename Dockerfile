@@ -21,7 +21,11 @@ COPY package.json bun.lock bunfig.toml ./
 RUN bun install --frozen-lockfile
 
 # ---- 2. builder ---------------------------------------------
-FROM oven/bun:1.2-alpine AS builder
+# IMPORTANTE: usamos Node (não Bun) para o `next build` porque o
+# Next.js 16 depende de módulos nativos N-API (SWC/lightningcss)
+# que o Bun ainda não carrega corretamente — resulta em
+# "symbol 'napi_register_module_v1' not found in native module".
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -44,7 +48,7 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_APP_LOCALE=$NEXT_PUBLIC_APP_LOCALE
 
-RUN bun run build
+RUN npx --yes next build
 
 # ---- 3. runner (imagem final) -------------------------------
 FROM node:20-alpine AS runner
