@@ -50,7 +50,18 @@ function buildWahaConfigFromRow(row: {
   };
 }
 
-export async function GET() {
+function resolveWebhookUrl(request: Request): string {
+  const override =
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL;
+  const base = override
+    ? override.replace(/\/+$/, '')
+    : new URL(request.url).origin;
+  return `${base}/api/whatsapp/waha-webhook`;
+}
+
+export async function GET(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -63,6 +74,8 @@ export async function GET() {
   if (!accountId) {
     return NextResponse.json({ connected: false, reason: 'no_account' });
   }
+
+  const webhookUrl = resolveWebhookUrl(request);
 
   const { data: row } = await supabase
     .from('whatsapp_config')
@@ -77,6 +90,7 @@ export async function GET() {
       connected: false,
       reason: 'no_config',
       message: 'WAHA não configurado.',
+      webhook_url: webhookUrl,
     });
   }
 
@@ -89,6 +103,7 @@ export async function GET() {
       reason: 'token_corrupted',
       needs_reset: true,
       message: 'Chave API do WAHA não pôde ser decifrada.',
+      webhook_url: webhookUrl,
     });
   }
 
@@ -105,6 +120,7 @@ export async function GET() {
       qr,
       base_url: row.waha_base_url,
       session: row.waha_session || 'default',
+      webhook_url: webhookUrl,
     });
   } catch (err) {
     const msg =
@@ -114,7 +130,12 @@ export async function GET() {
           ? err.message
           : 'Erro desconhecido';
     return NextResponse.json(
-      { connected: false, reason: 'waha_api_error', message: msg },
+      {
+        connected: false,
+        reason: 'waha_api_error',
+        message: msg,
+        webhook_url: webhookUrl,
+      },
       { status: 200 },
     );
   }
