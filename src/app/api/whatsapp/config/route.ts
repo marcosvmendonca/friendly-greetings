@@ -87,7 +87,7 @@ export async function GET() {
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select('provider, phone_number_id, access_token, status')
       .eq('account_id', accountId)
       .maybeSingle()
 
@@ -99,7 +99,23 @@ export async function GET() {
       )
     }
 
-    if (!config) {
+    // If the active provider for this account is WAHA, don't try to
+    // decrypt Meta fields or ping Meta's Graph API — the row is owned
+    // by the other panel now. Report a distinct reason so the Meta UI
+    // can show "WAHA is currently active" instead of "token corrupted".
+    if (config && config.provider === 'waha') {
+      return NextResponse.json(
+        {
+          connected: false,
+          reason: 'other_provider_active',
+          active_provider: 'waha',
+          message: 'A conta está usando o provedor WAHA. Desconecte o WAHA antes de configurar a API oficial da Meta.',
+        },
+        { status: 200 },
+      )
+    }
+
+    if (!config || !config.access_token || !config.phone_number_id) {
       return NextResponse.json(
         {
           connected: false,
