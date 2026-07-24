@@ -181,15 +181,16 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   ) {
     return null;
   }
-  // The `participant` field is only populated by WhatsApp on group
-  // messages (it distinguishes who inside the group spoke). If it's set,
-  // we're looking at a group message even if `from` looks like a 1:1 jid.
-  const hasParticipant =
-    Boolean(getString(key, 'participant')) ||
-    Boolean(getString(dataKey, 'participant')) ||
-    Boolean(getString(msg, 'participant')) ||
-    Boolean(getString(data, 'participant'));
-  if (hasParticipant) return null;
+  // `participant` on WhatsApp proto usually means group, but the GOWS
+  // engine sometimes emits it on 1:1 media too (device id). Reject only
+  // when the participant itself is a group JID — otherwise fall through
+  // to the chat-id checks below, which are authoritative.
+  const participant =
+    getString(key, 'participant') ??
+    getString(dataKey, 'participant') ??
+    getString(msg, 'participant') ??
+    getString(data, 'participant');
+  if (participant && isGroupOrBroadcast(participant)) return null;
 
   const candidates = [
     msg.from,
