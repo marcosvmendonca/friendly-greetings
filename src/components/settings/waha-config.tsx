@@ -119,6 +119,29 @@ export function WahaConfigPanel() {
     }
   }
 
+  async function handleRestart() {
+    setRestarting(true);
+    try {
+      const res = await fetch('/api/whatsapp/waha', { method: 'PATCH' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? 'Falha ao reiniciar sessão.');
+        return;
+      }
+      toast.success('Sessão reiniciada. Webhook reaplicado.');
+      await refresh();
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  async function copyWebhook() {
+    if (!webhookUrl) return;
+    await navigator.clipboard.writeText(webhookUrl);
+    toast.success('Webhook copiado.');
+  }
+
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
