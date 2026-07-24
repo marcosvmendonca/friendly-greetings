@@ -40,6 +40,8 @@ export function WahaConfigPanel() {
   const [apiKey, setApiKey] = useState('');
   const [session, setSession] = useState('default');
   const [hasConfig, setHasConfig] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState<string>('');
+  const [restarting, setRestarting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,6 +51,7 @@ export function WahaConfigPanel() {
       setStatus(data.status ?? 'STOPPED');
       setQr(data.qr ?? null);
       setMe(data.me ?? null);
+      if (data.webhook_url) setWebhookUrl(data.webhook_url);
       if (data.base_url) {
         setBaseUrl(data.base_url);
         setSession(data.session ?? 'default');
@@ -60,6 +63,7 @@ export function WahaConfigPanel() {
       setLoading(false);
     }
   }, []);
+
 
   useEffect(() => {
     refresh();
