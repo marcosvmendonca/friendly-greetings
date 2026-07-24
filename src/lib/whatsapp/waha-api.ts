@@ -203,12 +203,18 @@ export async function sendWahaMedia(
         : kind === 'audio'
           ? '/api/sendVoice'
           : '/api/sendFile';
+  const file: Record<string, unknown> = { url: mediaUrl };
+  if (filename) file.filename = filename;
   const body: Record<string, unknown> = {
     session: cfg.session,
     chatId: toWahaChatId(toE164),
-    file: { url: mediaUrl, filename: filename ?? undefined },
+    file,
   };
   if (caption && kind !== 'audio') body.caption = caption;
+  // WAHA-Plus transcodes non-OGG uploads to opus voice notes when this
+  // flag is set — the browser recorder produces webm/mp4, so without it
+  // the send fails with "unsupported audio format".
+  if (kind === 'audio') body.convert = true;
 
   const res = await wahaFetch(cfg, endpoint, {
     method: 'POST',
@@ -220,4 +226,24 @@ export async function sendWahaMedia(
       ? json.id
       : json.id?._serialized ?? json.id?.id ?? `waha_${Date.now()}`;
   return { id };
+}
+
+/**
+ * Send (or clear, with empty string) a reaction to a previously-sent
+ * WhatsApp message. WAHA endpoint: `PUT /api/reaction` with the target's
+ * serialized message id (the value we stored on `messages.message_id`).
+ */
+export async function sendWahaReaction(
+  cfg: WahaConfig,
+  targetMessageId: string,
+  emoji: string,
+): Promise<void> {
+  await wahaFetch(cfg, '/api/reaction', {
+    method: 'PUT',
+    body: JSON.stringify({
+      session: cfg.session,
+      messageId: targetMessageId,
+      reaction: emoji,
+    }),
+  });
 }
