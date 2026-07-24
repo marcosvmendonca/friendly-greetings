@@ -263,11 +263,22 @@ export function WahaConfigPanel() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {webhookUrl && (
+              <Alert className="mb-4">
+                <AlertTitle>Webhook (automático)</AlertTitle>
+                <AlertDescription>
+                  Ao conectar, este webhook será registrado automaticamente na sua instância WAHA:
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px] break-all">{webhookUrl}</code>
+                    <button type="button" onClick={copyWebhook} className="text-primary hover:underline" title="Copiar">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
             <form onSubmit={handleSave} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="waha-base">URL da instância WAHA</Label>
-                <Input
-                  id="waha-base"
+
                   placeholder="https://waha.seudominio.com"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
