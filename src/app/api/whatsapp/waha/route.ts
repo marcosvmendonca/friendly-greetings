@@ -113,8 +113,24 @@ export async function GET(request: Request) {
     if (session?.status === 'SCAN_QR_CODE') {
       qr = await getWahaQr(cfg).catch(() => null);
     }
+    // Persist connection state to `whatsapp_config.status` so the
+    // inbox "WhatsApp não conectado" banner reflects the live WAHA
+    // session. Without this, POST leaves status='disconnected' and
+    // nothing ever flips it to 'connected' after the QR is scanned.
+    const isWorking = session?.status === 'WORKING';
+    const desiredStatus = isWorking ? 'connected' : 'disconnected';
+    if (row.status !== desiredStatus) {
+      await supabase
+        .from('whatsapp_config')
+        .update({
+          status: desiredStatus,
+          connected_at: isWorking ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('account_id', accountId);
+    }
     return NextResponse.json({
-      connected: session?.status === 'WORKING',
+      connected: isWorking,
       status: session?.status ?? 'STOPPED',
       me: session?.me ?? null,
       qr,
