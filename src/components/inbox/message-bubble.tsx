@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type { Message, MessageReaction } from "@/types";
 import {
@@ -64,14 +64,16 @@ function useResolvedMediaUrl(url: string) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const objectUrlRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     setError(false);
     setLoading(true);
-    setSrc((previous) => {
-      if (previous?.startsWith("blob:")) URL.revokeObjectURL(previous);
-      return null;
-    });
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setSrc(null);
 
     if (needsAuthenticatedMediaFetch(url)) {
       try {
@@ -79,6 +81,7 @@ function useResolvedMediaUrl(url: string) {
         if (!res.ok) throw new Error("Failed to load media");
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
+        objectUrlRef.current = blobUrl;
         setSrc(blobUrl);
       } catch {
         setError(true);
@@ -94,10 +97,10 @@ function useResolvedMediaUrl(url: string) {
   useEffect(() => {
     load();
     return () => {
-      setSrc((previous) => {
-        if (previous?.startsWith("blob:")) URL.revokeObjectURL(previous);
-        return previous;
-      });
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     };
   }, [load]);
 

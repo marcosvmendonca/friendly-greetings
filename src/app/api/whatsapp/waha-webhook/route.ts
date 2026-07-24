@@ -292,6 +292,12 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
   const media = getRecord(msg, 'media');
   const file = getRecord(msg, 'file');
   const dataMedia = getRecord(data, 'media');
+  const dataMessage = getRecord(data, 'message');
+  const imageMessage = getRecord(dataMessage, 'imageMessage');
+  const videoMessage = getRecord(dataMessage, 'videoMessage');
+  const audioMessage = getRecord(dataMessage, 'audioMessage');
+  const documentMessage = getRecord(dataMessage, 'documentMessage');
+  const stickerMessage = getRecord(dataMessage, 'stickerMessage');
   return {
     url:
       firstString(
@@ -302,6 +308,16 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         dataMedia?.url,
         data?.mediaUrl,
         data?.deprecatedMms3Url,
+        imageMessage?.url,
+        imageMessage?.deprecatedMms3Url,
+        videoMessage?.url,
+        videoMessage?.deprecatedMms3Url,
+        audioMessage?.url,
+        audioMessage?.deprecatedMms3Url,
+        documentMessage?.url,
+        documentMessage?.deprecatedMms3Url,
+        stickerMessage?.url,
+        stickerMessage?.deprecatedMms3Url,
       ) ?? null,
     data:
       firstString(
@@ -319,6 +335,11 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         dataMedia?.mimetype,
         data?.mimetype,
         msg.mimetype,
+        imageMessage?.mimetype,
+        videoMessage?.mimetype,
+        audioMessage?.mimetype,
+        documentMessage?.mimetype,
+        stickerMessage?.mimetype,
       ) ?? null,
     filename:
       firstString(
@@ -329,6 +350,8 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         dataMedia?.filename,
         data?.filename,
         msg.filename,
+        documentMessage?.fileName,
+        documentMessage?.filename,
       ) ?? null,
   };
 }
@@ -359,11 +382,19 @@ function hasMediaBytes(bundle: WahaMediaBundle): boolean {
 
 function mapWahaContentType(type?: string, mimetype?: string | null): string {
   const t = (type ?? '').toLowerCase();
-  if (!t || t === 'chat') return 'text';
-  if (t === 'ptt' || t === 'voice') return 'audio';
-  if (t === 'sticker') return 'sticker';
-  if (t === 'gif' || t === 'animation') return 'video';
-  if (t === 'documentwithcaption') return 'document';
+  const mime = (mimetype ?? '').toLowerCase().split(';')[0]?.trim() ?? '';
+  if (!t || t === 'chat') {
+    if (mime.startsWith('image/')) return mime === 'image/webp' ? 'sticker' : 'image';
+    if (mime.startsWith('video/')) return 'video';
+    if (mime.startsWith('audio/')) return 'audio';
+    if (mime) return 'document';
+    return 'text';
+  }
+  if (t === 'ptt' || t === 'voice' || t === 'audiomessage') return 'audio';
+  if (t === 'sticker' || t === 'stickermessage') return 'sticker';
+  if (t === 'gif' || t === 'animation' || t === 'videomessage') return 'video';
+  if (t === 'documentwithcaption' || t === 'documentmessage') return 'document';
+  if (t === 'imagemessage') return 'image';
 
   const allowed = new Set([
     'text',
@@ -379,7 +410,6 @@ function mapWahaContentType(type?: string, mimetype?: string | null): string {
   if (allowed.has(t)) return t;
 
   // Fallback via mimetype when WAHA reports a generic type
-  const mime = (mimetype ?? '').toLowerCase().split(';')[0]?.trim() ?? '';
   if (mime.startsWith('image/')) return mime === 'image/webp' ? 'sticker' : 'image';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
