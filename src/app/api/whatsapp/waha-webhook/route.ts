@@ -956,12 +956,30 @@ export async function POST(request: Request) {
     .maybeSingle();
   let insertedMessage = false;
   if (!existingMsg) {
+    // For media messages, try to persist the binary in Storage BEFORE
+    // insert so the row lands with a stable public URL. If the download
+    // fails (WAHA didn't include a URL, api key missing, network hiccup)
+    // we fall back to `normalized.mediaUrl` — the on-demand proxy path
+    // that tries again at render time.
+    let mediaUrl = normalized.mediaUrl;
+    if (
+      MEDIA_CONTENT_TYPES.has(normalized.contentType) &&
+      config.waha_base_url
+    ) {
+      const stored = await storeWahaMedia(
+        admin,
+        config,
+        normalized,
+        (config.waha_base_url as string).replace(/\/+$/, ''),
+      );
+      if (stored) mediaUrl = stored;
+    }
     const { error: msgErr } = await admin.from('messages').insert({
       conversation_id: conversationId,
       sender_type: 'customer',
       content_type: normalized.contentType,
       content_text: normalized.contentText,
-      media_url: normalized.mediaUrl,
+      media_url: mediaUrl,
       status: 'delivered',
       message_id: normalized.messageId,
       created_at: normalized.createdAt,
