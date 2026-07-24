@@ -262,10 +262,32 @@ export async function sendMessageToConversation(
     );
   }
 
-  const accessToken = decrypt(config.access_token);
+  // Provider dispatch. WAHA rows have no Meta access_token; hand off
+  // to the WAHA send helpers below. Meta rows keep the original flow.
+  const provider = (config.provider as 'meta' | 'waha' | undefined) ?? 'meta';
 
-  // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
+  if (provider === 'waha') {
+    if (messageType === 'template' || messageType === 'interactive') {
+      throw new SendMessageError(
+        'unsupported_by_provider',
+        'Templates e mensagens interativas oficiais só funcionam pela API Meta. Envie texto ou mídia por este número WAHA.',
+        400,
+      );
+    }
+    if (!config.waha_base_url || !config.waha_api_key) {
+      throw new SendMessageError(
+        'whatsapp_not_configured',
+        'WAHA config incompleta. Reconecte em Settings → WhatsApp.',
+        400,
+      );
+    }
+  }
+
+  const accessToken =
+    provider === 'meta' ? decrypt(config.access_token) : '';
+
+  // Self-heal legacy CBC ciphertexts (Meta only). Fire-and-forget; idempotent.
+  if (provider === 'meta' && isLegacyFormat(config.access_token)) {
     void db
       .from('whatsapp_config')
       .update({ access_token: encrypt(accessToken) })
@@ -279,6 +301,7 @@ export async function sendMessageToConversation(
         }
       });
   }
+
 
   // Resolve the reply target to its Meta message_id. The parent must
   // belong to this same conversation — otherwise a caller could quote
