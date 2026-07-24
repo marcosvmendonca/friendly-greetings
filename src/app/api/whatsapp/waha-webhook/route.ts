@@ -175,6 +175,12 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const chatIds = candidates
     .map(extractChatId)
     .filter((value): value is string => Boolean(value));
+  // If any candidate reveals this is a group chat, reject entirely —
+  // group threads have both `remoteJid=@g.us` and `participant=@s.whatsapp.net`,
+  // so picking the participant would leak the group message into a fake 1:1.
+  if (chatIds.some((value) => value.endsWith('@g.us') || value.includes('@g.us'))) {
+    return null;
+  }
   return chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
 }
 
