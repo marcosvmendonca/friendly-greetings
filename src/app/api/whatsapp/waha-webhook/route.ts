@@ -352,14 +352,24 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const contentText = resolveMessageBody(msg);
+  const contentType = mapWahaContentType(rawType);
+  let mediaUrl = resolveMediaUrl(msg);
+  const messageId = resolveMessageId(msg, session, chatId, createdAt);
+  // If it's a media type and WAHA didn't include a public URL in the
+  // webhook payload (default when downloadMedia isn't enabled), fall
+  // back to our own proxy — it fetches the binary via WAHA on demand
+  // using the tenant's stored api key.
+  if (!mediaUrl && MEDIA_CONTENT_TYPES.has(contentType)) {
+    mediaUrl = `/api/whatsapp/waha-media/${encodeURIComponent(messageId)}`;
+  }
   return {
     chatId,
     phone: normalizePhone(`+${digits}`),
     fromMe,
-    messageId: resolveMessageId(msg, session, chatId, createdAt),
+    messageId,
     contentText,
-    contentType: mapWahaContentType(rawType),
-    mediaUrl: resolveMediaUrl(msg),
+    contentType,
+    mediaUrl,
     createdAt,
     rawType,
   };
