@@ -363,7 +363,10 @@ export async function POST(request: Request) {
   }
 
   // We only care about inbound customer messages.
-  if (!event.startsWith('message')) {
+  // We only care about inbound customer messages. WAHA emits both
+  // `message` (inbound only) and `message.any` (inbound + outbound) for
+  // the same wamid — accept only `message` to avoid duplicate inserts.
+  if (event !== 'message') {
     return NextResponse.json({ ok: true });
   }
 
