@@ -37,7 +37,7 @@ export function registerBroadcastTools(server: McpServer, client: WacrmClient): 
       .describe('Must be true to actually send. A safety gate against accidental mass sends.'),
   };
 
-  server.registerTool(
+  (server as any).registerTool(
     'send_broadcast',
     {
       title: 'Send broadcast',

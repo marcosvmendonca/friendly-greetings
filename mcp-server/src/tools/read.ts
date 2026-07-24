@@ -15,7 +15,7 @@ import { handle, jsonResult } from './shared.js';
 const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
 
 export function registerReadTools(server: McpServer, client: WacrmClient): void {
-  server.registerTool(
+  (server as any).registerTool(
     'whoami',
     {
       title: 'Who am I',
@@ -27,7 +27,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     handle(async () => jsonResult(await client.me())),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_contacts',
     {
       title: 'List contacts',
@@ -50,7 +50,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     handle(async (args) => jsonResult(await client.listContacts(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_contact',
     {
       title: 'Get contact',
@@ -63,7 +63,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     handle(async ({ id }) => jsonResult(await client.getContact(id))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_conversations',
     {
       title: 'List conversations',
@@ -80,7 +80,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     handle(async (args) => jsonResult(await client.listConversations(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_conversation',
     {
       title: 'Get conversation',
@@ -93,7 +93,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     handle(async ({ id }) => jsonResult(await client.getConversation(id))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'list_messages',
     {
       title: 'List messages',

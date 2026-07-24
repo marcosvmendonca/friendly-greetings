@@ -24,7 +24,7 @@ const templateSchema = z
   .describe('Template payload — required when type is "template".');
 
 export function registerWriteTools(server: McpServer, client: WacrmClient): void {
-  server.registerTool(
+  (server as any).registerTool(
     'send_message',
     {
       title: 'Send WhatsApp message',
@@ -57,7 +57,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
     handle(async (args) => jsonResult(await client.sendMessage(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'create_contact',
     {
       title: 'Create contact',
@@ -75,7 +75,7 @@ export function registerWriteTools(server: McpServer, client: WacrmClient): void
     handle(async (args) => jsonResult(await client.createContact(args))),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'update_contact',
     {
       title: 'Update contact',
