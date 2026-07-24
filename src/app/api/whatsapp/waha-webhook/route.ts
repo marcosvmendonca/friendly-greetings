@@ -362,7 +362,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // We only care about inbound customer messages.
   // We only care about inbound customer messages. WAHA emits both
   // `message` (inbound only) and `message.any` (inbound + outbound) for
   // the same wamid — accept only `message` to avoid duplicate inserts.
