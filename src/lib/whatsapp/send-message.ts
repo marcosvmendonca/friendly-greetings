@@ -448,34 +448,50 @@ export async function sendMessageToConversation(
   let waMessageId = '';
   let workingPhone = sanitizedPhone;
   try {
-    const variants = phoneVariants(sanitizedPhone);
-    let lastError: unknown = null;
+    if (provider === 'waha') {
+      // WAHA doesn't have Meta's allow-list behaviour; the phone-variant
+      // retry is Meta-only. Send once with the sanitized phone and let
+      // any error surface as-is (with the upstream body attached).
+      waMessageId = await attempt(sanitizedPhone);
+    } else {
+      const variants = phoneVariants(sanitizedPhone);
+      let lastError: unknown = null;
 
-    for (const variant of variants) {
-      try {
-        waMessageId = await attempt(variant);
-        workingPhone = variant;
-        lastError = null;
-        break;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (!isRecipientNotAllowedError(message)) {
-          throw err;
+      for (const variant of variants) {
+        try {
+          waMessageId = await attempt(variant);
+          workingPhone = variant;
+          lastError = null;
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!isRecipientNotAllowedError(message)) {
+            throw err;
+          }
+          lastError = err;
+          console.warn(
+            `[send-message] variant "${variant}" rejected by Meta, trying next…`
+          );
         }
-        lastError = err;
-        console.warn(
-          `[send-message] variant "${variant}" rejected by Meta, trying next…`
-        );
       }
-    }
 
-    if (lastError) throw lastError;
+      if (lastError) throw lastError;
+    }
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+      err instanceof Error ? err.message : 'Unknown provider error';
+    console.error(
+      `[send-message] ${provider} send failed:`,
+      message,
+    );
+    const label = provider === 'waha' ? 'WAHA error' : 'Meta API error';
+    throw new SendMessageError(
+      provider === 'waha' ? 'waha_error' : 'meta_error',
+      `${label}: ${message}`,
+      502,
+    );
   }
+
 
   if (workingPhone !== sanitizedPhone) {
     console.log(
