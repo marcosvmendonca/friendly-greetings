@@ -1,8 +1,11 @@
 'use client';
 
+'use client';
+
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { Loader2, QrCode, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { Loader2, QrCode, CheckCircle2, XCircle, Trash2, Copy, RefreshCw } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +40,8 @@ export function WahaConfigPanel() {
   const [apiKey, setApiKey] = useState('');
   const [session, setSession] = useState('default');
   const [hasConfig, setHasConfig] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState<string>('');
+  const [restarting, setRestarting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -46,6 +51,7 @@ export function WahaConfigPanel() {
       setStatus(data.status ?? 'STOPPED');
       setQr(data.qr ?? null);
       setMe(data.me ?? null);
+      if (data.webhook_url) setWebhookUrl(data.webhook_url);
       if (data.base_url) {
         setBaseUrl(data.base_url);
         setSession(data.session ?? 'default');
@@ -57,6 +63,7 @@ export function WahaConfigPanel() {
       setLoading(false);
     }
   }, []);
+
 
   useEffect(() => {
     refresh();
@@ -111,6 +118,29 @@ export function WahaConfigPanel() {
       toast.error('Falha ao desconectar.');
     }
   }
+
+  async function handleRestart() {
+    setRestarting(true);
+    try {
+      const res = await fetch('/api/whatsapp/waha', { method: 'PATCH' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? 'Falha ao reiniciar sessão.');
+        return;
+      }
+      toast.success('Sessão reiniciada. Webhook reaplicado.');
+      await refresh();
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  async function copyWebhook() {
+    if (!webhookUrl) return;
+    await navigator.clipboard.writeText(webhookUrl);
+    toast.success('Webhook copiado.');
+  }
+
 
   if (loading) {
     return (
@@ -179,16 +209,47 @@ export function WahaConfigPanel() {
               <div>
                 <strong>Sessão:</strong> {session}
               </div>
+              {webhookUrl && (
+                <div className="flex items-center gap-2 pt-1">
+                  <strong>Webhook:</strong>
+                  <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{webhookUrl}</code>
+                  <button
+                    type="button"
+                    onClick={copyWebhook}
+                    className="text-primary hover:underline"
+                    title="Copiar"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={handleDisconnect}
-            >
-              <Trash2 className="mr-2 h-4 w-4" /> Desconectar
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRestart}
+                disabled={restarting}
+              >
+                {restarting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Reiniciar sessão
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDisconnect}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Desconectar
+              </Button>
+            </div>
           </CardContent>
+
         </Card>
       )}
 
@@ -202,6 +263,20 @@ export function WahaConfigPanel() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {webhookUrl && (
+              <Alert className="mb-4">
+                <AlertTitle>Webhook (automático)</AlertTitle>
+                <AlertDescription>
+                  Ao conectar, este webhook será registrado automaticamente na sua instância WAHA:
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px] break-all">{webhookUrl}</code>
+                    <button type="button" onClick={copyWebhook} className="text-primary hover:underline" title="Copiar">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
             <form onSubmit={handleSave} className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="waha-base">URL da instância WAHA</Label>
@@ -213,6 +288,7 @@ export function WahaConfigPanel() {
                   required
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="waha-key">API Key (WHATSAPP_API_KEY)</Label>
                 <Input
