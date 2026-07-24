@@ -258,6 +258,9 @@ function resolveMediaUrl(msg: JsonRecord): string | null {
 function mapWahaContentType(type?: string): string {
   if (!type || type === 'chat') return 'text';
   if (type === 'ptt') return 'audio';
+  // WAHA/WhatsApp exposes stickers as their own type; store as sticker
+  // so the bubble renderer can differentiate from a regular image.
+  if (type === 'sticker') return 'sticker';
 
   const allowed = new Set([
     'text',
@@ -268,10 +271,29 @@ function mapWahaContentType(type?: string): string {
     'location',
     'template',
     'interactive',
+    'sticker',
   ]);
 
   return allowed.has(type) ? type : 'text';
 }
+
+// System / protocol / status events masquerade as messages in WAHA.
+// Everything in this set is either a delivery/read receipt, an
+// encryption-key-changed banner, a "message was deleted" tombstone, or
+// an internal cipher event — none of which the user cares about.
+const IGNORED_WAHA_TYPES = new Set([
+  'revoked',
+  'notification_template',
+  'e2e_notification',
+  'ciphertext',
+  'protocol',
+  'gp2', // group participant change
+  'unknown',
+  'ack',
+  'receipt',
+  'call_log',
+  'status',
+]);
 
 function normalizeWahaMessage(body: WahaWebhookPayload, session: string): NormalizedWahaMessage | null {
   const root = body as JsonRecord;
