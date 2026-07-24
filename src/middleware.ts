@@ -77,9 +77,16 @@ export async function middleware(request: NextRequest) {
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
+  // API routes that need auth (not external webhooks)
+  const publicWhatsappWebhookPaths = [
+    '/api/whatsapp/webhook',
+    '/api/whatsapp/waha-webhook',
+  ]
+  const isPublicWhatsappWebhook = publicWhatsappWebhookPaths.some((path) =>
+    request.nextUrl.pathname.startsWith(path)
+  )
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+      !isPublicWhatsappWebhook) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

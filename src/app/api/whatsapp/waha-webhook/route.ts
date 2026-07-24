@@ -46,6 +46,30 @@ interface WahaWebhookPayload {
   };
 }
 
+function mapWahaContentType(type?: string): string {
+  if (!type || type === 'chat') return 'text';
+  if (type === 'ptt') return 'audio';
+
+  const allowed = new Set([
+    'text',
+    'image',
+    'document',
+    'audio',
+    'video',
+    'location',
+    'template',
+    'interactive',
+  ]);
+
+  return allowed.has(type) ? type : 'text';
+}
+
+function resolveMessageCreatedAt(timestamp?: number): string {
+  if (!timestamp) return new Date().toISOString();
+  const millis = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+  return new Date(millis).toISOString();
+}
+
 export async function POST(request: Request) {
   let body: WahaWebhookPayload;
   try {
@@ -129,7 +153,7 @@ export async function POST(request: Request) {
         account_id: config.account_id,
         user_id: config.user_id,
         phone,
-        full_name: phone,
+        name: phone,
       })
       .select('id')
       .maybeSingle();
@@ -147,7 +171,7 @@ export async function POST(request: Request) {
   // Find-or-create conversation.
   const { data: existingConv } = await admin
     .from('conversations')
-    .select('id')
+    .select('id, unread_count')
     .eq('account_id', config.account_id)
     .eq('contact_id', contactId)
     .maybeSingle();
@@ -176,36 +200,32 @@ export async function POST(request: Request) {
   const { data: existingMsg } = await admin
     .from('messages')
     .select('id')
-    .eq('whatsapp_message_id', whatsappMessageId)
+    .eq('message_id', whatsappMessageId)
     .maybeSingle();
   if (!existingMsg) {
     const { error: msgErr } = await admin.from('messages').insert({
-      account_id: config.account_id,
       conversation_id: conversationId,
-      contact_id: contactId,
-      direction: 'inbound',
-      message_type: messageType,
+      sender_type: 'customer',
+      content_type: messageType,
       content_text: contentText,
-      whatsapp_message_id: whatsappMessageId,
       status: 'delivered',
+      message_id: whatsappMessageId,
+      created_at: resolveMessageCreatedAt(msg.timestamp),
     });
     if (msgErr) {
       console.error('[waha-webhook] message insert', msgErr);
+      return NextResponse.json({ ok: false }, { status: 500 });
     }
   }
 
+  const nextUnreadCount = ((existingConv?.unread_count as number | null) ?? 0) + 1;
   await admin
     .from('conversations')
     .update({
+      last_message_text: contentText || `[${msg.type ?? 'text'}]`,
       last_message_at: new Date().toISOString(),
-      unread_count: (await admin
-        .from('conversations')
-        .select('unread_count')
-        .eq('id', conversationId)
-        .maybeSingle()
-      ).data?.unread_count
-        ? undefined
-        : 1,
+      unread_count: nextUnreadCount,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', conversationId);
 
