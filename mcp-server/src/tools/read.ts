@@ -111,7 +111,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
     ),
   );
 
-  server.registerTool(
+  (server as any).registerTool(
     'get_broadcast',
     {
       title: 'Get broadcast status',
@@ -119,7 +119,7 @@ export function registerReadTools(server: McpServer, client: WacrmClient): void 
         'Read a broadcast campaign by id — its status and delivered / read / rejected counts. Use this to poll progress after launching one.',
       inputSchema: {
         id: z.string().describe('Broadcast id.'),
-      },
+      } as never,
       annotations: { ...READ_ONLY, title: 'Get broadcast status' },
     },
     handle(async ({ id }) => jsonResult(await client.getBroadcast(id))),
