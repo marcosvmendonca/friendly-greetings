@@ -269,23 +269,37 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
-  phone_number_id: string;
+  /**
+   * Which WhatsApp transport backs this account. `meta` = official
+   * Cloud API (templates + interactive). `waha` = self-hosted WAHA
+   * REST API (text + media only). Defaults to `meta` for legacy rows.
+   */
+  provider?: 'meta' | 'waha';
+  // ---- Meta (official) ----
+  phone_number_id?: string;
   waba_id?: string;
-  access_token: string;
+  access_token?: string;
   verify_token?: string;
+  // ---- WAHA (unofficial) ----
+  waha_base_url?: string;
+  waha_api_key?: string;
+  waha_session?: string;
+  // ---- shared ----
   status: 'connected' | 'disconnected';
   connected_at?: string;
   /**
    * Set when POST /{phone_number_id}/register last succeeded. NULL
    * means the number was saved but never actually subscribed for
    * webhooks on Meta's side — inbound events will be silently lost.
+   * Meta-only; always null for WAHA rows.
    */
   registered_at?: string;
-  /** Set when POST /{waba_id}/subscribed_apps last succeeded. */
+  /** Set when POST /{waba_id}/subscribed_apps last succeeded. Meta-only. */
   subscribed_apps_at?: string;
-  /** Last error from /register; cleared on success. */
+  /** Last error from /register; cleared on success. Meta-only. */
   last_registration_error?: string;
 }
+
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)
 // rather than collapsing to a local TitleCase set — distinctions like
