@@ -114,11 +114,15 @@ function InboxPageInner() {
    * realtime channel). The ref is kept in sync via the effect below.
    */
   const knownConvIdsRef = useRef<Set<string>>(new Set());
+  const activeConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     const next = new Set<string>();
     for (const c of conversations) next.add(c.id);
     knownConvIdsRef.current = next;
   }, [conversations]);
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversation?.id ?? null;
+  }, [activeConversation?.id]);
 
   // Pull the conversation row with its `contact` joined and merge it
   // into state. Needed because Supabase Realtime payloads only carry the
@@ -161,12 +165,20 @@ function InboxPageInner() {
           // realtime payloads never carry.
           return prev.map((c) =>
             c.id === fetched.id
-              ? { ...c, contact: c.contact ?? fetched.contact }
+              ? { ...c, contact: fetched.contact ?? c.contact }
               : c,
           );
         }
         return [fetched, ...prev];
       });
+      if (activeConversationIdRef.current === fetched.id && fetched.contact) {
+        setActiveContact(fetched.contact);
+        setActiveConversation((prev) =>
+          prev?.id === fetched.id
+            ? { ...prev, contact: fetched.contact }
+            : prev,
+        );
+      }
     } finally {
       hydratingConvIdsRef.current.delete(convId);
     }
@@ -403,6 +415,17 @@ function InboxPageInner() {
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
       setConversations(loaded);
+      const activeLoaded = activeConversation?.id
+        ? loaded.find((c) => c.id === activeConversation.id)
+        : null;
+      if (activeLoaded?.contact) {
+        setActiveContact(activeLoaded.contact);
+        setActiveConversation((prev) =>
+          prev?.id === activeLoaded.id
+            ? { ...prev, contact: activeLoaded.contact }
+            : prev,
+        );
+      }
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value

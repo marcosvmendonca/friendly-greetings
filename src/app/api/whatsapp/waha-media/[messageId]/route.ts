@@ -2,6 +2,99 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { decrypt } from '@/lib/whatsapp/encryption';
 
+type JsonRecord = Record<string, unknown>;
+
+type WahaMedia = {
+  url?: string;
+  mimetype?: string;
+  mimeType?: string;
+  data?: string;
+  filename?: string;
+  fileName?: string;
+};
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): JsonRecord | null {
+  return isRecord(value) ? value : null;
+}
+
+function getRecord(record: JsonRecord | null | undefined, key: string): JsonRecord | null {
+  return asRecord(record?.[key]);
+}
+
+function firstString(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function mediaFromPayload(value: unknown): WahaMedia | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const data = getRecord(record, '_data');
+  const dataMessage = getRecord(data, 'message');
+  const candidates = [
+    getRecord(record, 'media'),
+    getRecord(data, 'media'),
+    getRecord(record, 'downloadedMedia'),
+    getRecord(record, 'file'),
+    getRecord(dataMessage, 'imageMessage'),
+    getRecord(dataMessage, 'videoMessage'),
+    getRecord(dataMessage, 'audioMessage'),
+    getRecord(dataMessage, 'documentMessage'),
+    getRecord(dataMessage, 'stickerMessage'),
+    record,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const media: WahaMedia = {
+      url: firstString(
+        candidate.url,
+        candidate.mediaUrl,
+        candidate.downloadUrl,
+        candidate.deprecatedMms3Url,
+      ),
+      mimetype: firstString(
+        candidate.mimetype,
+        candidate.mimeType,
+        candidate.contentType,
+      ),
+      data: firstString(candidate.data, candidate.mediaData),
+      filename: firstString(
+        candidate.filename,
+        candidate.fileName,
+        candidate.name,
+      ),
+    };
+    if (media.url || media.data || media.mimetype || media.filename) return media;
+  }
+  return null;
+}
+
+function rewriteWahaMediaUrl(url: string, baseUrl: string): string {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '0.0.0.0'
+    ) {
+      const base = new URL(baseUrl);
+      parsed.hostname = base.hostname;
+      parsed.protocol = base.protocol;
+      parsed.port = base.port;
+    }
+    return parsed.toString();
+  } catch {
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+  }
+}
+
 /**
  * On-demand WAHA media proxy.
  *
@@ -89,21 +182,13 @@ export async function GET(
     `${baseUrl}/api/${encodeURIComponent(session)}/messages/${encodedId}?downloadMedia=true`,
   ];
 
-  type WahaMedia = {
-    url?: string;
-    mimetype?: string;
-    data?: string;
-    filename?: string;
-  };
   let media: WahaMedia | null = null;
   for (const url of attempts) {
     try {
       const res = await fetch(url, { method: 'GET', headers });
       if (!res.ok) continue;
-      const payload = (await res.json().catch(() => null)) as
-        | { media?: WahaMedia; _data?: { media?: WahaMedia } }
-        | null;
-      const found = payload?.media ?? payload?._data?.media ?? null;
+      const payload = await res.json().catch(() => null);
+      const found = mediaFromPayload(payload);
       if (found) {
         media = found;
         break;
@@ -123,7 +208,7 @@ export async function GET(
   // Preferred: WAHA returned a URL — stream it through so the browser
   // doesn't need any WAHA credentials.
   if (media.url) {
-    const upstream = await fetch(media.url, {
+    const upstream = await fetch(rewriteWahaMediaUrl(media.url, baseUrl), {
       method: 'GET',
       headers: apiKey ? { 'X-Api-Key': apiKey } : undefined,
     });
@@ -141,7 +226,8 @@ export async function GET(
 
   // Fallback: WAHA inlined the base64 payload directly on the message.
   if (media.data) {
-    const buf = Buffer.from(media.data, 'base64');
+    const raw = media.data.replace(/^data:[^;]+;base64,/, '');
+    const buf = Buffer.from(raw, 'base64');
     return new Response(new Uint8Array(buf), {
       status: 200,
       headers: {
