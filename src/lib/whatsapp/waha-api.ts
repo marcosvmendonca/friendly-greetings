@@ -156,24 +156,91 @@ export async function getWahaQr(cfg: WahaConfig): Promise<string | null> {
 // --------- outbound send ---------
 
 /**
- * WAHA chat IDs use the `<digits>@c.us` format (no leading `+`).
- * Groups use `<id>@g.us`, but we only support 1:1 for now.
+ * WAHA chat IDs use the `<digits>@c.us` format for 1:1 chats.
+ * GOWS/NOWEB may expose the same contact internally as
+ * `<digits>@s.whatsapp.net` or `<digits>:<device>@s.whatsapp.net`;
+ * WAHA docs explicitly say to convert those to `@c.us` before sending.
  */
-export function toWahaChatId(e164Phone: string): string {
-  const digits = e164Phone.replace(/\D/g, '');
+export function normalizeWahaChatId(value: string): string {
+  const trimmed = value.trim();
+  const jid = trimmed.match(/^([^@\s]+)@(c\.us|s\.whatsapp\.net|lid)$/i);
+  if (jid) {
+    const local = jid[1].split(':')[0] ?? jid[1];
+    const server = jid[2].toLowerCase();
+    if (server === 'lid') return `${local}@lid`;
+    const digits = local.replace(/\D/g, '');
+    return `${digits}@c.us`;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
   return `${digits}@c.us`;
+}
+
+export function extractWahaChatId(value: string): string | null {
+  const match = value.match(
+    /(?:^|_)([0-9A-Za-z.:-]+@(?:c|g)\.us|[0-9A-Za-z.:-]+@s\.whatsapp\.net|[0-9A-Za-z.:-]+@lid)(?:_|$)/i,
+  );
+  const raw = match?.[1] ?? (/^[^@\s]+@(c\.us|s\.whatsapp\.net|lid)$/i.test(value) ? value : null);
+  if (!raw || raw.includes('@g.us')) return null;
+  return normalizeWahaChatId(raw);
+}
+
+export function normalizeWahaMessageId(value: string): string {
+  return value.replace(
+    /([^_@\s]+)@(c\.us|s\.whatsapp\.net|lid)/gi,
+    (_match, local: string, server: string) => {
+      const bareLocal = local.split(':')[0] ?? local;
+      if (server.toLowerCase() === 'lid') return `${bareLocal}@lid`;
+      const digits = bareLocal.replace(/\D/g, '');
+      return `${digits}@c.us`;
+    },
+  );
+}
+
+export function toWahaChatId(e164Phone: string): string {
+  return normalizeWahaChatId(e164Phone);
+}
+
+async function resolveWahaChatId(
+  cfg: WahaConfig,
+  toE164: string,
+  preferredChatId?: string | null,
+): Promise<string> {
+  if (preferredChatId) return normalizeWahaChatId(preferredChatId);
+
+  const fallback = toWahaChatId(toE164);
+  const phone = toE164.replace(/\D/g, '');
+  if (!phone) return fallback;
+
+  try {
+    const params = new URLSearchParams({ phone, session: cfg.session });
+    const res = await wahaFetch(cfg, `/api/contacts/check-exists?${params.toString()}`, {
+      method: 'GET',
+    });
+    const json = (await res.json()) as { numberExists?: boolean; chatId?: string };
+    if (json.numberExists && json.chatId) return normalizeWahaChatId(json.chatId);
+  } catch (err) {
+    console.warn(
+      '[waha-api] check-exists failed; falling back to phone chatId:',
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return fallback;
 }
 
 export async function sendWahaText(
   cfg: WahaConfig,
   toE164: string,
   text: string,
+  preferredChatId?: string | null,
 ): Promise<{ id: string }> {
+  const chatId = await resolveWahaChatId(cfg, toE164, preferredChatId);
   const res = await wahaFetch(cfg, '/api/sendText', {
     method: 'POST',
     body: JSON.stringify({
       session: cfg.session,
-      chatId: toWahaChatId(toE164),
+      chatId,
       text,
     }),
   });
@@ -194,7 +261,9 @@ export async function sendWahaMedia(
   mediaUrl: string,
   caption?: string | null,
   filename?: string | null,
+  preferredChatId?: string | null,
 ): Promise<{ id: string }> {
+  const chatId = await resolveWahaChatId(cfg, toE164, preferredChatId);
   const endpoint =
     kind === 'image'
       ? '/api/sendImage'
@@ -207,7 +276,7 @@ export async function sendWahaMedia(
   if (filename) file.filename = filename;
   const body: Record<string, unknown> = {
     session: cfg.session,
-    chatId: toWahaChatId(toE164),
+    chatId,
     file,
   };
   if (caption && kind !== 'audio') body.caption = caption;
@@ -242,7 +311,7 @@ export async function sendWahaReaction(
     method: 'PUT',
     body: JSON.stringify({
       session: cfg.session,
-      messageId: targetMessageId,
+      messageId: normalizeWahaMessageId(targetMessageId),
       reaction: emoji,
     }),
   });

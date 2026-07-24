@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 
 /**
@@ -125,9 +126,19 @@ function extractChatId(value: unknown): string | undefined {
   const serialized = extractSerialized(value);
   if (!serialized) return undefined;
   const direct = serialized.match(
-    /(?:^|_)([0-9A-Za-z.-]+@(?:c|g)\.us|[0-9A-Za-z.-]+@s\.whatsapp\.net|[0-9A-Za-z.-]+@lid)(?:_|$)/,
+    /(?:^|_)([0-9A-Za-z.:-]+@(?:c|g)\.us|[0-9A-Za-z.:-]+@s\.whatsapp\.net|[0-9A-Za-z.:-]+@lid)(?:_|$)/,
   );
   return direct?.[1] ?? serialized;
+}
+
+function normalizeWahaChatId(chatId: string): string {
+  const jid = chatId.match(/^([^@\s]+)@(c\.us|s\.whatsapp\.net|lid)$/i);
+  if (!jid) return chatId;
+  const local = jid[1].split(':')[0] ?? jid[1];
+  const server = jid[2].toLowerCase();
+  if (server === 'lid') return `${local}@lid`;
+  const digits = local.replace(/\D/g, '');
+  return `${digits}@c.us`;
 }
 
 function isOneToOneChatId(chatId: string): boolean {
@@ -181,18 +192,19 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   if (chatIds.some((value) => value.endsWith('@g.us') || value.includes('@g.us'))) {
     return null;
   }
-  return chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
+  const oneToOne = chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
+  return oneToOne ? normalizeWahaChatId(oneToOne) : null;
 }
 
 function resolveMessageId(msg: JsonRecord, session: string, chatId: string, createdAt: string): string {
   const data = getRecord(msg, '_data');
-  return (
+  const messageId =
     extractSerialized(msg.id) ??
     extractSerialized(data?.id) ??
     getString(msg, 'messageId') ??
     getString(data, 'messageId') ??
-    `waha_${session}_${chatId}_${createdAt}`
-  );
+    `waha_${session}_${chatId}_${createdAt}`;
+  return normalizeWahaMessageId(messageId);
 }
 
 function resolveMessageCreatedAt(msg: JsonRecord): string {
