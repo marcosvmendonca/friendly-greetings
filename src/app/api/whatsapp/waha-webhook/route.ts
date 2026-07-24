@@ -533,16 +533,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // Route reactions to their own handler; they're state on an existing
+  // target message, not new bubbles.
+  if (event === 'message.reaction') {
+    const admin = supabaseAdmin();
+    const config = await resolveWahaConfig(admin, session);
+    if (config?.account_id) await handleWahaReaction(admin, config, body);
+    return NextResponse.json({ ok: true });
+  }
+
   // We only care about inbound customer messages. WAHA emits both
   // `message` (inbound only) and `message.any` (inbound + outbound) for
   // the same wamid — accept only `message` to avoid duplicate inserts.
+  // Everything else (message.ack, message.revoked, session.status, …) is
+  // a status update that shouldn't materialize as a chat bubble.
   if (event !== 'message') {
     return NextResponse.json({ ok: true });
   }
 
   const normalized = normalizeWahaMessage(body, session);
   if (!normalized) {
-    console.warn('[waha-webhook] message payload ignored; no 1:1 chat id found', {
+    console.warn('[waha-webhook] message payload ignored (system/non-1:1)', {
       event,
       session,
     });
