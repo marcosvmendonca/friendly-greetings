@@ -183,10 +183,7 @@ export async function POST(request: Request) {
   }
 
   const cfg: WahaConfig = { baseUrl: base_url, apiKey: api_key, session };
-  const webhookUrl = new URL(
-    '/api/whatsapp/waha-webhook',
-    request.url,
-  ).toString();
+  const webhookUrl = resolveWebhookUrl(request);
 
   // Kick off the session on WAHA first — no point saving credentials
   // that can't actually reach the WAHA instance.
