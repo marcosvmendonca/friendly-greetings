@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
+import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 
 /**
@@ -197,13 +198,13 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
 
 function resolveMessageId(msg: JsonRecord, session: string, chatId: string, createdAt: string): string {
   const data = getRecord(msg, '_data');
-  return (
+  const messageId =
     extractSerialized(msg.id) ??
     extractSerialized(data?.id) ??
     getString(msg, 'messageId') ??
     getString(data, 'messageId') ??
-    `waha_${session}_${chatId}_${createdAt}`
-  );
+    `waha_${session}_${chatId}_${createdAt}`;
+  return normalizeWahaMessageId(messageId);
 }
 
 function resolveMessageCreatedAt(msg: JsonRecord): string {
