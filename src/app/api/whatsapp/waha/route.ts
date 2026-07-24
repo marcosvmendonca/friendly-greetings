@@ -190,12 +190,24 @@ export async function POST(request: Request) {
     .eq('account_id', accountId)
     .maybeSingle();
 
+  // Switching to WAHA: null out Meta-only fields so the Meta panel
+  // doesn't keep reporting a broken/corrupted Meta connection on a row
+  // that is now owned by WAHA. Only one provider can be active per
+  // account.
   const row = {
     provider: 'waha' as const,
     waha_base_url: base_url,
     waha_api_key: encryptedApiKey,
     waha_session: session,
     status: 'disconnected' as const,
+    phone_number_id: null,
+    waba_id: null,
+    access_token: null,
+    verify_token: null,
+    registered_at: null,
+    subscribed_apps_at: null,
+    last_registration_error: null,
+    connected_at: null,
     updated_at: new Date().toISOString(),
   };
 
