@@ -173,6 +173,11 @@ function InboxPageInner() {
       });
       if (activeConversationIdRef.current === fetched.id && fetched.contact) {
         setActiveContact(fetched.contact);
+        setActiveConversation((prev) =>
+          prev?.id === fetched.id
+            ? { ...prev, contact: fetched.contact }
+            : prev,
+        );
       }
     } finally {
       hydratingConvIdsRef.current.delete(convId);
@@ -410,6 +415,17 @@ function InboxPageInner() {
   const handleConversationsLoaded = useCallback(
     (loaded: Conversation[]) => {
       setConversations(loaded);
+      const activeLoaded = activeConversation?.id
+        ? loaded.find((c) => c.id === activeConversation.id)
+        : null;
+      if (activeLoaded?.contact) {
+        setActiveContact(activeLoaded.contact);
+        setActiveConversation((prev) =>
+          prev?.id === activeLoaded.id
+            ? { ...prev, contact: activeLoaded.contact }
+            : prev,
+        );
+      }
       // Resolve a pending deep-link here rather than in an effect — this
       // is an event handler, so the setState calls below are allowed by
       // react-hooks/set-state-in-effect. Runs once per ?c=<id> URL value
