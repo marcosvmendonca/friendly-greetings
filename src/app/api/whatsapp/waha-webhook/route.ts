@@ -52,6 +52,7 @@ interface WahaConfigRow {
   account_id: string;
   user_id: string;
   waha_api_key: string | null;
+  waha_base_url: string | null;
   waha_session: string | null;
   status: string | null;
 }
