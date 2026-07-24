@@ -176,11 +176,38 @@ export function normalizeWahaChatId(value: string): string {
   return `${digits}@c.us`;
 }
 
+export function extractWahaChatId(value: string): string | null {
+  const match = value.match(
+    /(?:^|_)([0-9A-Za-z.:-]+@(?:c|g)\.us|[0-9A-Za-z.:-]+@s\.whatsapp\.net|[0-9A-Za-z.:-]+@lid)(?:_|$)/i,
+  );
+  const raw = match?.[1] ?? (/^[^@\s]+@(c\.us|s\.whatsapp\.net|lid)$/i.test(value) ? value : null);
+  if (!raw || raw.includes('@g.us')) return null;
+  return normalizeWahaChatId(raw);
+}
+
+export function normalizeWahaMessageId(value: string): string {
+  return value.replace(
+    /([^_@\s]+)@(c\.us|s\.whatsapp\.net|lid)/gi,
+    (_match, local: string, server: string) => {
+      const bareLocal = local.split(':')[0] ?? local;
+      if (server.toLowerCase() === 'lid') return `${bareLocal}@lid`;
+      const digits = bareLocal.replace(/\D/g, '');
+      return `${digits}@c.us`;
+    },
+  );
+}
+
 export function toWahaChatId(e164Phone: string): string {
   return normalizeWahaChatId(e164Phone);
 }
 
-async function resolveWahaChatId(cfg: WahaConfig, toE164: string): Promise<string> {
+async function resolveWahaChatId(
+  cfg: WahaConfig,
+  toE164: string,
+  preferredChatId?: string | null,
+): Promise<string> {
+  if (preferredChatId) return normalizeWahaChatId(preferredChatId);
+
   const fallback = toWahaChatId(toE164);
   const phone = toE164.replace(/\D/g, '');
   if (!phone) return fallback;
@@ -206,8 +233,9 @@ export async function sendWahaText(
   cfg: WahaConfig,
   toE164: string,
   text: string,
+  preferredChatId?: string | null,
 ): Promise<{ id: string }> {
-  const chatId = await resolveWahaChatId(cfg, toE164);
+  const chatId = await resolveWahaChatId(cfg, toE164, preferredChatId);
   const res = await wahaFetch(cfg, '/api/sendText', {
     method: 'POST',
     body: JSON.stringify({
@@ -233,8 +261,9 @@ export async function sendWahaMedia(
   mediaUrl: string,
   caption?: string | null,
   filename?: string | null,
+  preferredChatId?: string | null,
 ): Promise<{ id: string }> {
-  const chatId = await resolveWahaChatId(cfg, toE164);
+  const chatId = await resolveWahaChatId(cfg, toE164, preferredChatId);
   const endpoint =
     kind === 'image'
       ? '/api/sendImage'
@@ -282,7 +311,7 @@ export async function sendWahaReaction(
     method: 'PUT',
     body: JSON.stringify({
       session: cfg.session,
-      messageId: targetMessageId,
+      messageId: normalizeWahaMessageId(targetMessageId),
       reaction: emoji,
     }),
   });
