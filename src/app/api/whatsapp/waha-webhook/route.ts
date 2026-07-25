@@ -1021,6 +1021,44 @@ async function fetchWahaContactInfo(
   }
 }
 
+/**
+ * Best-effort insert into `waha_webhook_events` used by the inbox
+ * debug panel. Failures are swallowed — we never want debug logging
+ * to break real message ingestion.
+ */
+async function logDebugEvent(
+  admin: SupabaseClient,
+  row: {
+    account_id?: string | null;
+    session?: string | null;
+    event?: string | null;
+    chat_id?: string | null;
+    phone?: string | null;
+    message_id?: string | null;
+    outcome: string;
+    reason?: string | null;
+    payload?: unknown;
+    normalized?: unknown;
+  },
+): Promise<void> {
+  try {
+    await admin.from('waha_webhook_events').insert({
+      account_id: row.account_id ?? null,
+      session: row.session ?? null,
+      event: row.event ?? null,
+      chat_id: row.chat_id ?? null,
+      phone: row.phone ?? null,
+      message_id: row.message_id ?? null,
+      outcome: row.outcome,
+      reason: row.reason ?? null,
+      payload: row.payload ?? null,
+      normalized: row.normalized ?? null,
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export async function POST(request: Request) {
   let body: WahaWebhookPayload;
   try {
@@ -1031,6 +1069,22 @@ export async function POST(request: Request) {
 
   const event = body.event ?? '';
   const session = body.session ?? '';
+
+  // Fire-and-forget: capture the raw payload for the debug panel
+  // BEFORE any filtering. Even ignored events (groups, statuses, from-me)
+  // land here so agents can see why nothing appeared in the inbox.
+  const debugAdmin = (() => {
+    try { return supabaseAdmin(); } catch { return null; }
+  })();
+  if (debugAdmin) {
+    void logDebugEvent(debugAdmin, {
+      session,
+      event,
+      outcome: 'received',
+      payload: body,
+    });
+  }
+
   if (!session) {
     console.warn('[waha-webhook] missing session in webhook payload');
     return NextResponse.json({ ok: true });
