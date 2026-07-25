@@ -1142,12 +1142,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // We only care about inbound customer messages. WAHA emits both
-  // `message` (inbound only) and `message.any` (inbound + outbound) for
-  // the same wamid — accept only `message` to avoid duplicate inserts.
-  // Everything else (message.ack, message.revoked, session.status, …) is
-  // a status update that shouldn't materialize as a chat bubble.
-  if (event !== 'message') {
+  // WAHA emits `message` (inbound only) and `message.any` (inbound +
+  // outbound). We need `message.any` to mirror messages the user sends
+  // from another device / WhatsApp Web. Inserts are idempotent on wamid,
+  // so duplicates between the two channels collapse safely.
+  // Ignore ack/revoked/session.status etc.
+  if (event !== 'message' && event !== 'message.any') {
     return NextResponse.json({ ok: true });
   }
 
@@ -1159,7 +1159,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true });
   }
-  if (normalized.fromMe) return NextResponse.json({ ok: true });
 
   const admin = supabaseAdmin();
 
