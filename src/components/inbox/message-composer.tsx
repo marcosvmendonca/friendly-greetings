@@ -93,11 +93,12 @@ interface ReplyDraft {
 // the file picker so unsupported files are rejected before upload rather
 // than failing with a confusing Storage error. Audio has no picker — it's
 // captured via the recorder.
-const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
+const PICKER_ACCEPT: Record<"image" | "video" | "document" | "sticker", string> = {
   image: "image/png,image/jpeg,image/webp",
   video: "video/mp4,video/3gpp",
   document:
     "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+  sticker: "image/webp",
 };
 
 interface MediaDraft {
