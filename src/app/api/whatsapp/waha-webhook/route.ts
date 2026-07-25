@@ -317,6 +317,7 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         documentMessage?.url,
         documentMessage?.deprecatedMms3Url,
         stickerMessage?.url,
+        stickerMessage?.URL,
         stickerMessage?.deprecatedMms3Url,
       ) ?? null,
     data:
@@ -466,11 +467,29 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
   if (!digits) return null;
 
-  const rawType = (getString(msg, 'type') ?? getString(data, 'type') ?? 'chat').toLowerCase();
+  // GOWS engine reports type inside _data.Info.Type / Info.MediaType.
+  // Info.Type=="media" with MediaType containing "sticker" (e.g.
+  // "user_created_sticker", "animated_sticker") is a sticker; when the
+  // top-level `type` field is missing we fall back to that shape.
+  const info = getRecord(data, 'Info');
+  const infoType = (getString(info, 'Type') ?? '').toLowerCase();
+  const infoMediaType = (getString(info, 'MediaType') ?? '').toLowerCase();
+  const dataMessage = getRecord(data, 'message') ?? getRecord(data, 'Message');
+  const hasStickerMessage = Boolean(
+    getRecord(dataMessage, 'stickerMessage') ?? getRecord(dataMessage, 'StickerMessage'),
+  );
+  const rawType = (getString(msg, 'type') ?? getString(data, 'type') ?? infoType ?? 'chat').toLowerCase();
   if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const bundle = resolveMediaBundle(msg);
-  const contentType = mapWahaContentType(rawType, bundle.mimetype);
+  let contentType = mapWahaContentType(rawType, bundle.mimetype);
+  if (
+    hasStickerMessage ||
+    infoMediaType.includes('sticker') ||
+    (contentType === 'image' && (bundle.mimetype ?? '').toLowerCase().includes('webp'))
+  ) {
+    contentType = 'sticker';
+  }
   let contentText = resolveMessageBody(msg);
   // For documents, prefer the filename as visible label when no caption
   // was provided — otherwise the bubble would render just an icon.
