@@ -52,12 +52,11 @@ export function BulkActionsBar({ selectedIds, onClear, onDone }: BulkActionsBarP
     run({ action: "status", status }, `status-${status}`);
 
   const handleAssignSelf = async () => {
-    // Pega o próprio user id via endpoint account/members (já valida a conta).
-    // Simplificação: consulta /api/account que retorna user_id do caller.
     try {
-      const res = await fetch("/api/account", { method: "GET" });
-      const data = await res.json().catch(() => ({}));
-      const uid = data?.user?.id || data?.user_id;
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data } = await supabase.auth.getUser();
+      const uid = data?.user?.id;
       if (!uid) throw new Error("Não foi possível identificar seu usuário");
       await run({ action: "assign", assigned_agent_id: uid }, "assign-me");
     } catch (err) {
