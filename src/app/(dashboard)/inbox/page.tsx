@@ -666,6 +666,8 @@ function InboxPageInner() {
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            onDeleteMessage={handleDeleteMessage}
+            onDeleteConversation={handleDeleteConversation}
           />
         </div>
 
