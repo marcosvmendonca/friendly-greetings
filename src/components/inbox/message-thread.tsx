@@ -45,6 +45,10 @@ import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import {
   MessageComposer,
+} from "./message-composer";
+import { TypingIndicator } from "./typing-indicator";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const __typing_import_marker = {
   CHAT_MEDIA_BUCKET,
   type SendMediaPayload,
 } from "./message-composer";
