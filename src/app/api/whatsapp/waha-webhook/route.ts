@@ -879,13 +879,17 @@ async function fetchWahaMediaBytes(
   return null;
 }
 
+type StoreMediaResult = { url: string | null; reason: string | null };
+
 async function storeWahaMedia(
   admin: SupabaseClient,
   config: WahaConfigRow,
   normalized: NormalizedWahaMessageFull,
   wahaBaseUrl: string,
-): Promise<string | null> {
-  if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) return null;
+): Promise<StoreMediaResult> {
+  if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) {
+    return { url: null, reason: 'not-media' };
+  }
   let apiKey = '';
   if (config.waha_api_key) {
     try {
@@ -894,7 +898,9 @@ async function storeWahaMedia(
       console.warn('[waha-webhook] WAHA api key decrypt failed', err instanceof Error ? err.message : err);
     }
   }
-  if (!apiKey && !normalized.bundle.data) return null;
+  if (!apiKey && !normalized.bundle.data) {
+    return { url: null, reason: 'no-api-key-and-no-inline-data' };
+  }
 
   let bundle = normalized.bundle;
   if (!hasMediaBytes(bundle) && apiKey) {
@@ -908,7 +914,12 @@ async function storeWahaMedia(
   }
 
   const fetched = await fetchWahaMediaBytes(bundle, wahaBaseUrl, apiKey);
-  if (!fetched || fetched.bytes.byteLength === 0) return null;
+  if (!fetched || fetched.bytes.byteLength === 0) {
+    return {
+      url: null,
+      reason: `fetch-empty (bundle.url=${bundle.url ? 'yes' : 'no'}, bundle.data=${bundle.data ? 'yes' : 'no'})`,
+    };
+  }
 
   const mime = fetched.mime ?? normalizeMime(normalized.mimetype) ?? 'application/octet-stream';
   const ext = extForContent(normalized.contentType, mime, normalized.filename);
@@ -926,10 +937,10 @@ async function storeWahaMedia(
     });
   if (upErr) {
     console.warn('[waha-webhook] storage upload failed', upErr.message);
-    return null;
+    return { url: null, reason: `upload-failed: ${upErr.message}` };
   }
   const { data } = admin.storage.from('chat-media').getPublicUrl(path);
-  return data.publicUrl ?? null;
+  return { url: data.publicUrl ?? null, reason: null };
 }
 
 async function fetchWahaContactInfo(
