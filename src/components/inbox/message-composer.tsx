@@ -236,13 +236,23 @@ export function MessageComposer({
     try {
       onSend(trimmed, replyTo?.id);
       setText("");
+      reportActivity(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id]);
+  }, [text, sending, sessionExpired, onSend, replyTo?.id, reportActivity]);
+
+  // Broadcast recording start/stop so peers see "gravando áudio…".
+  useEffect(() => {
+    if (recording) reportActivity("recording");
+    // When recording stops, the text-change handler (or handleSend)
+    // takes over the activity state — but if the composer is empty and
+    // we're not recording, make sure the indicator is cleared.
+    else if (text.trim().length === 0) reportActivity(null);
+  }, [recording, text, reportActivity]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
