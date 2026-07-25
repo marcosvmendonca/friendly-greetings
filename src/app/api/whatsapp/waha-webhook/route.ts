@@ -1294,6 +1294,8 @@ export async function POST(request: Request) {
     // we fall back to `normalized.mediaUrl` — the on-demand proxy path
     // that tries again at render time.
     let mediaUrl = normalized.mediaUrl;
+    let storageReason: string | null = null;
+    let storageUrl: string | null = null;
     if (
       MEDIA_CONTENT_TYPES.has(normalized.contentType) &&
       config.waha_base_url
@@ -1304,7 +1306,9 @@ export async function POST(request: Request) {
         normalized,
         (config.waha_base_url as string).replace(/\/+$/, ''),
       );
-      if (stored) mediaUrl = stored;
+      storageUrl = stored.url;
+      storageReason = stored.reason;
+      if (stored.url) mediaUrl = stored.url;
     }
     const { error: msgErr } = await admin.from('messages').insert({
       conversation_id: conversationId,
@@ -1321,6 +1325,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false }, { status: 500 });
     }
     insertedMessage = true;
+    // Surface storage outcome in debug so the inbox debug panel shows
+    // WHY a given media message fell back to the on-demand proxy URL.
+    if (debugAdmin && MEDIA_CONTENT_TYPES.has(normalized.contentType)) {
+      void logDebugEvent(debugAdmin, {
+        account_id: config.account_id,
+        session,
+        event,
+        chat_id: normalized.chatId,
+        phone: normalized.phone,
+        message_id: normalized.messageId,
+        outcome: storageUrl ? 'media-stored' : 'media-fallback',
+        reason: storageReason,
+        normalized: { storageUrl, storageReason, bundle: normalized.bundle },
+      });
+    }
   }
 
   const currentUnreadCount = (existingConv?.unread_count as number | null) ?? 0;
@@ -1352,6 +1371,11 @@ export async function POST(request: Request) {
       phone: normalized.phone,
       message_id: normalized.messageId,
       outcome: insertedMessage ? 'stored' : 'duplicate',
+      // Include the full raw body so the debug panel can show WAHA's
+      // original payload next to the DB row we created. Prior versions
+      // dropped this, which made it impossible to diagnose which field
+      // was missing (pushName, media, contact.number, …).
+      payload: body,
       normalized,
     });
   }
