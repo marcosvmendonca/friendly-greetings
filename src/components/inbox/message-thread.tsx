@@ -1018,6 +1018,28 @@ export function MessageThread({
             </button>
           )}
 
+          {/* Menu de mais ações — excluir conversa */}
+          {onDeleteConversation && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Mais ações"
+                title="Mais ações"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="border-border bg-popover">
+                <DropdownMenuItem
+                  onClick={handleDeleteConversation}
+                  className="text-sm text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir conversa
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           {/* Status dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger className={cn(
