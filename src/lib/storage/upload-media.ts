@@ -31,6 +31,9 @@ export const MEDIA_MAX_BYTES_BY_KIND = {
   video: 16 * 1024 * 1024,
   audio: 16 * 1024 * 1024,
   document: 16 * 1024 * 1024,
+  // Stickers are tiny by spec (WhatsApp: ≤100 KB static, ≤500 KB animated).
+  // Give a bit of headroom for the webp we accept locally.
+  sticker: 1 * 1024 * 1024,
 } as const;
 
 /**
