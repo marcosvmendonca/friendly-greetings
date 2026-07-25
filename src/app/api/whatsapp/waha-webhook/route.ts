@@ -299,12 +299,20 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
   const media = getRecord(msg, 'media');
   const file = getRecord(msg, 'file');
   const dataMedia = getRecord(data, 'media');
-  const dataMessage = getRecord(data, 'message');
-  const imageMessage = getRecord(dataMessage, 'imageMessage');
-  const videoMessage = getRecord(dataMessage, 'videoMessage');
-  const audioMessage = getRecord(dataMessage, 'audioMessage');
-  const documentMessage = getRecord(dataMessage, 'documentMessage');
-  const stickerMessage = getRecord(dataMessage, 'stickerMessage');
+  // GOWS engine (used for outbound message.any events too) nests the
+  // proto message under PascalCase keys; the JS engine uses lowercase.
+  // Check both so mirrored outbound media surfaces its url/mimetype.
+  const dataMessage = getRecord(data, 'message') ?? getRecord(data, 'Message');
+  const imageMessage =
+    getRecord(dataMessage, 'imageMessage') ?? getRecord(dataMessage, 'ImageMessage');
+  const videoMessage =
+    getRecord(dataMessage, 'videoMessage') ?? getRecord(dataMessage, 'VideoMessage');
+  const audioMessage =
+    getRecord(dataMessage, 'audioMessage') ?? getRecord(dataMessage, 'AudioMessage');
+  const documentMessage =
+    getRecord(dataMessage, 'documentMessage') ?? getRecord(dataMessage, 'DocumentMessage');
+  const stickerMessage =
+    getRecord(dataMessage, 'stickerMessage') ?? getRecord(dataMessage, 'StickerMessage');
   return {
     url:
       firstString(
@@ -316,12 +324,16 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.mediaUrl,
         data?.deprecatedMms3Url,
         imageMessage?.url,
+        imageMessage?.URL,
         imageMessage?.deprecatedMms3Url,
         videoMessage?.url,
+        videoMessage?.URL,
         videoMessage?.deprecatedMms3Url,
         audioMessage?.url,
+        audioMessage?.URL,
         audioMessage?.deprecatedMms3Url,
         documentMessage?.url,
+        documentMessage?.URL,
         documentMessage?.deprecatedMms3Url,
         stickerMessage?.url,
         stickerMessage?.URL,
@@ -344,10 +356,15 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.mimetype,
         msg.mimetype,
         imageMessage?.mimetype,
+        imageMessage?.Mimetype,
         videoMessage?.mimetype,
+        videoMessage?.Mimetype,
         audioMessage?.mimetype,
+        audioMessage?.Mimetype,
         documentMessage?.mimetype,
+        documentMessage?.Mimetype,
         stickerMessage?.mimetype,
+        stickerMessage?.Mimetype,
       ) ?? null,
     filename:
       firstString(
@@ -359,6 +376,7 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.filename,
         msg.filename,
         documentMessage?.fileName,
+        documentMessage?.FileName,
         documentMessage?.filename,
       ) ?? null,
   };
@@ -489,7 +507,32 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const bundle = resolveMediaBundle(msg);
+  // Detect media type from GOWS proto messages when the top-level `type`
+  // is missing (common for outbound message.any events mirrored from
+  // another device). Info.MediaType looks like "image"/"video"/
+  // "audio"/"ptt"/"document"/"user_created_sticker"/"animated_sticker".
+  const inferredFromInfo =
+    infoMediaType.includes('sticker') ? 'sticker'
+      : infoMediaType.startsWith('image') ? 'image'
+      : infoMediaType.startsWith('video') || infoMediaType.startsWith('gif') ? 'video'
+      : infoMediaType.startsWith('audio') || infoMediaType === 'ptt' || infoMediaType === 'voice' ? 'audio'
+      : infoMediaType.startsWith('document') ? 'document'
+      : null;
+  const inferredFromProto = getRecord(dataMessage, 'imageMessage') || getRecord(dataMessage, 'ImageMessage')
+    ? 'image'
+    : getRecord(dataMessage, 'videoMessage') || getRecord(dataMessage, 'VideoMessage')
+    ? 'video'
+    : getRecord(dataMessage, 'audioMessage') || getRecord(dataMessage, 'AudioMessage')
+    ? 'audio'
+    : getRecord(dataMessage, 'documentMessage') || getRecord(dataMessage, 'DocumentMessage')
+    ? 'document'
+    : hasStickerMessage
+    ? 'sticker'
+    : null;
   let contentType = mapWahaContentType(rawType, bundle.mimetype);
+  if (contentType === 'text' && (inferredFromInfo || inferredFromProto)) {
+    contentType = (inferredFromInfo ?? inferredFromProto) as string;
+  }
   if (
     hasStickerMessage ||
     infoMediaType.includes('sticker') ||
@@ -497,6 +540,7 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   ) {
     contentType = 'sticker';
   }
+
   let contentText = resolveMessageBody(msg);
   // For documents, prefer the filename as visible label when no caption
   // was provided — otherwise the bubble would render just an icon.
