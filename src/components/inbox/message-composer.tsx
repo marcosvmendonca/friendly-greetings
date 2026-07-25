@@ -256,10 +256,14 @@ export function MessageComposer({
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setText(e.target.value);
+      const value = e.target.value;
+      setText(value);
       adjustHeight();
+      // Broadcast "typing" to peers (throttled inside the hook); clear
+      // as soon as the field goes empty so the indicator disappears.
+      reportActivity(value.trim().length > 0 ? "typing" : null);
     },
-    [adjustHeight]
+    [adjustHeight, reportActivity],
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the
