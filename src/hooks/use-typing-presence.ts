@@ -79,12 +79,13 @@ export function useTypingPresence(
           name?: string;
           kind?: TypingActivity | "idle";
         };
-        if (!p?.userId || p.userId === userId) return;
+        const peerId = p?.userId;
+        if (!peerId || peerId === userId) return;
         setPeers((prev) => {
-          const others = prev.filter((e) => e.userId !== p.userId);
+          const others = prev.filter((e) => e.userId !== peerId);
           if (p.kind === "typing" || p.kind === "recording") {
             others.push({
-              userId: p.userId,
+              userId: peerId,
               name: p.name || "Alguém",
               kind: p.kind,
               receivedAt: Date.now(),
