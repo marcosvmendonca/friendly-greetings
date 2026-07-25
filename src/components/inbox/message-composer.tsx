@@ -196,6 +196,10 @@ export function MessageComposer({
   // Media (like free-form text) is only allowed inside the 24h window.
   const inputsDisabled = readOnly || sessionExpired;
 
+  // Team-wide typing/recording indicator (broadcast, not DB) — lets
+  // multiple agents in the same inbox see each other's activity live.
+  const { report: reportActivity } = useTypingPresence(conversationId);
+
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
       clearInterval(timerRef.current);
