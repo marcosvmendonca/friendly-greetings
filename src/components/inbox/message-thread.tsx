@@ -27,6 +27,8 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Trash2,
+  MoreVertical,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -109,6 +111,10 @@ interface MessageThreadProps {
    */
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /** Remove uma mensagem do thread e da conversa. */
+  onDeleteMessage?: (messageId: string) => void;
+  /** Exclui a conversa inteira. */
+  onDeleteConversation?: (conversationId: string) => void;
 }
 
 function formatDateSeparator(dateStr: string, t: ReturnType<typeof useTranslations>): string {
@@ -167,6 +173,8 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  onDeleteMessage,
+  onDeleteConversation,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
   const tTimer = useTranslations("Inbox.sessionTimer");
