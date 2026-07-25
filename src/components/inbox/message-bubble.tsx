@@ -14,6 +14,7 @@ import {
   ImageOff,
   CornerDownLeft,
   Sparkles,
+  Sticker,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -140,33 +141,36 @@ function MediaSticker({ url }: { url: string }) {
   const { src, error, loading, setError } = useResolvedMediaUrl(url);
   if (error) {
     return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted">
-        <ImageOff className="h-7 w-7 text-muted-foreground" />
+      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
+        <ImageOff className="h-8 w-8 text-muted-foreground" />
       </div>
     );
   }
   if (loading) {
     return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-muted">
+      <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
+  // Renderiza a figurinha como imagem no chat, com um selo discreto de
+  // "Figurinha" no canto para o agente reconhecer o tipo original.
   return (
-    <a
-      href={src ?? "#"}
-      download="sticker.webp"
-      target="_blank"
-      rel="noreferrer"
-      title="Baixar figurinha"
-    >
+    <div className="relative inline-block">
       <img
         src={src ?? ""}
-        alt="Sticker"
-        className="max-h-40 max-w-40 rounded-lg bg-transparent"
+        alt="Figurinha"
+        className="max-h-64 max-w-60 rounded-lg object-cover"
         onError={() => setError(true)}
       />
-    </a>
+      <span
+        className="absolute bottom-1 left-1 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
+        title="Figurinha"
+      >
+        <Sticker className="h-3 w-3" />
+        Figurinha
+      </span>
+    </div>
   );
 }
 
