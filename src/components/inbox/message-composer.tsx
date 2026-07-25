@@ -57,7 +57,7 @@ import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 
 /** Media content types an agent can send from the composer. */
-export type ComposerMediaKind = "image" | "video" | "document" | "audio";
+export type ComposerMediaKind = "image" | "video" | "document" | "audio" | "sticker";
 
 /** Supabase Storage bucket holding agent-sent chat attachments (migration 023). */
 export const CHAT_MEDIA_BUCKET = "chat-media";
