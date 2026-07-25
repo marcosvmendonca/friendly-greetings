@@ -13,6 +13,7 @@ import { useRealtime } from "@/hooks/use-realtime";
 import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
+import { InboxDebugPanel } from "@/components/inbox/inbox-debug-panel";
 import { toast } from "sonner";
 import { WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -659,6 +660,7 @@ function InboxPageInner() {
           </div>
         )}
       </div>
+      <InboxDebugPanel conversationId={activeConversation?.id ?? null} />
     </div>
   );
 }
