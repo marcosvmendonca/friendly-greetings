@@ -468,7 +468,7 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
     getBoolean(data, 'fromMe') ??
     getBoolean(dataId, 'fromMe') ??
     false;
-  const chatId = resolveSenderChatId(msg);
+  const chatId = resolveSenderChatId(msg, fromMe);
   if (!chatId || !isOneToOneChatId(chatId)) return null;
 
   const digits = chatId.split('@')[0]?.replace(/\D/g, '') ?? '';
