@@ -22,6 +22,7 @@ import {
   Plus,
   MessageSquareDashed,
   Zap,
+  Sticker,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GatedButton } from "@/components/ui/gated-button";
@@ -57,7 +58,7 @@ import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
 
 /** Media content types an agent can send from the composer. */
-export type ComposerMediaKind = "image" | "video" | "document" | "audio";
+export type ComposerMediaKind = "image" | "video" | "document" | "audio" | "sticker";
 
 /** Supabase Storage bucket holding agent-sent chat attachments (migration 023). */
 export const CHAT_MEDIA_BUCKET = "chat-media";
@@ -93,11 +94,12 @@ interface ReplyDraft {
 // the file picker so unsupported files are rejected before upload rather
 // than failing with a confusing Storage error. Audio has no picker — it's
 // captured via the recorder.
-const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
+const PICKER_ACCEPT: Record<"image" | "video" | "document" | "sticker", string> = {
   image: "image/png,image/jpeg,image/webp",
   video: "video/mp4,video/3gpp",
   document:
     "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+  sticker: "image/webp",
 };
 
 interface MediaDraft {
@@ -162,6 +164,7 @@ export function MessageComposer({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const documentInputRef = useRef<HTMLInputElement>(null);
+  const stickerInputRef = useRef<HTMLInputElement>(null);
   // Mirror of `draft` for the unmount cleanup, which can't read render
   // state. Kept in sync below so navigating away with a staged-but-unsent
   // attachment GCs the orphaned object.
@@ -412,7 +415,7 @@ export function MessageComposer({
   );
 
   const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
+    (kind: "image" | "video" | "document" | "sticker", file: File | undefined) => {
       if (file) void stageUpload(kind, file);
     },
     [stageUpload],
@@ -514,7 +517,9 @@ export function MessageComposer({
       // Audio takes no caption (Meta rejects it). Everything else: the
       // trimmed caption, or undefined when blank.
       caption:
-        draft.kind === "audio" ? undefined : draft.caption.trim() || undefined,
+        draft.kind === "audio" || draft.kind === "sticker"
+          ? undefined
+          : draft.caption.trim() || undefined,
       filename: draft.kind === "document" ? draft.filename : undefined,
       replyToId: replyTo?.id,
     });
@@ -594,6 +599,18 @@ export function MessageComposer({
           e.target.value = "";
         }}
       />
+      <input
+        ref={stickerInputRef}
+        type="file"
+        accept={PICKER_ACCEPT.sticker}
+        className="hidden"
+        onChange={(e) => {
+          handlePicked("sticker", e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+
+
 
       {draft ? (
         <MediaDraftPreview
@@ -661,6 +678,10 @@ export function MessageComposer({
               <DropdownMenuItem onClick={() => documentInputRef.current?.click()}>
                 <FileText className="mr-2 h-4 w-4" />
                 {t("document")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => stickerInputRef.current?.click()}>
+                <Sticker className="mr-2 h-4 w-4" />
+                Figurinha (webp)
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void startRecording()}>
                 <Mic className="mr-2 h-4 w-4" />
@@ -862,6 +883,14 @@ function MediaDraftPreview({
               <span className="truncate">{draft.filename}</span>
             </div>
           )}
+          {draft.kind === "sticker" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={draft.mediaUrl}
+              alt={draft.filename}
+              className="max-h-32 rounded-lg object-contain"
+            />
+          )}
         </div>
         <button
           type="button"
@@ -874,7 +903,7 @@ function MediaDraftPreview({
       </div>
 
       <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== "audio" && (
+        {draft.kind !== "audio" && draft.kind !== "sticker" && (
           <input
             value={draft.caption}
             maxLength={MEDIA_CAPTION_MAX}
@@ -897,7 +926,7 @@ function MediaDraftPreview({
           onClick={onSend}
           className={cn(
             "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
-            draft.kind === "audio" && "ml-auto",
+            (draft.kind === "audio" || draft.kind === "sticker") && "ml-auto",
           )}
         >
           <Send className="h-4 w-4" />

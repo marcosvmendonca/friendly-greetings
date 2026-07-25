@@ -153,12 +153,20 @@ function MediaSticker({ url }: { url: string }) {
     );
   }
   return (
-    <img
-      src={src ?? ""}
-      alt="Sticker"
-      className="max-h-40 max-w-40 rounded-lg bg-transparent"
-      onError={() => setError(true)}
-    />
+    <a
+      href={src ?? "#"}
+      download="sticker.webp"
+      target="_blank"
+      rel="noreferrer"
+      title="Baixar figurinha"
+    >
+      <img
+        src={src ?? ""}
+        alt="Sticker"
+        className="max-h-40 max-w-40 rounded-lg bg-transparent"
+        onError={() => setError(true)}
+      />
+    </a>
   );
 }
 
