@@ -510,6 +510,8 @@ function extractPushName(body: WahaWebhookPayload): string | null {
   if (!msg) return null;
   const data = getRecord(msg, '_data');
   const notify = getRecord(data, 'notifyName');
+  // GOWS engine nests it under _data.Info.PushName (whatsmeow shape).
+  const info = getRecord(data, 'Info');
   return (
     firstString(
       msg.pushName,
@@ -518,6 +520,10 @@ function extractPushName(body: WahaWebhookPayload): string | null {
       data?.pushName,
       data?.notifyName,
       notify?.formattedName,
+      info?.PushName,
+      info?.pushName,
+      info?.VerifiedName,
+      info?.verifiedName,
     ) ?? null
   );
 }
