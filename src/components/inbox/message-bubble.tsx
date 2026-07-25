@@ -15,7 +15,10 @@ import {
   CornerDownLeft,
   Sparkles,
   Sticker,
+  Download,
 } from "lucide-react";
+import { MediaLightbox } from "./media-lightbox";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
@@ -108,8 +111,53 @@ function useResolvedMediaUrl(url: string) {
   return { src, error, loading, setError };
 }
 
+async function downloadMedia(url: string, filename?: string) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("fetch failed");
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename || `download-${Date.now()}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch {
+    toast.error("Falha ao baixar arquivo");
+  }
+}
+
+function DownloadOverlayButton({
+  onClick,
+  className,
+}: {
+  onClick: (e: React.MouseEvent) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      title="Baixar"
+      aria-label="Baixar"
+      className={cn(
+        "absolute right-1 top-1 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition group-hover/media:opacity-100 hover:bg-black/70 focus:opacity-100",
+        className,
+      )}
+    >
+      <Download className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 function MediaImage({ url, alt }: { url: string; alt: string }) {
   const { src, error, loading, setError } = useResolvedMediaUrl(url);
+  const [open, setOpen] = useState(false);
 
   if (error) {
     return (
@@ -128,17 +176,34 @@ function MediaImage({ url, alt }: { url: string; alt: string }) {
   }
 
   return (
-    <img
-      src={src ?? ""}
-      alt={alt}
-      className="max-h-64 max-w-60 rounded-lg object-cover"
-      onError={() => setError(true)}
-    />
+    <>
+      <div className="group/media relative inline-block">
+        <img
+          src={src ?? ""}
+          alt={alt}
+          className="max-h-64 max-w-60 cursor-zoom-in rounded-lg object-cover"
+          onClick={() => setOpen(true)}
+          onError={() => setError(true)}
+        />
+        <DownloadOverlayButton
+          onClick={() => downloadMedia(url, alt)}
+        />
+      </div>
+      <MediaLightbox
+        open={open}
+        onClose={() => setOpen(false)}
+        src={src ?? ""}
+        originalUrl={url}
+        filename={alt}
+        kind="image"
+      />
+    </>
   );
 }
 
 function MediaSticker({ url }: { url: string }) {
   const { src, error, loading, setError } = useResolvedMediaUrl(url);
+  const [open, setOpen] = useState(false);
   if (error) {
     return (
       <div className="flex h-40 w-60 items-center justify-center rounded-lg bg-muted">
@@ -153,29 +218,42 @@ function MediaSticker({ url }: { url: string }) {
       </div>
     );
   }
-  // Renderiza a figurinha como imagem no chat, com um selo discreto de
-  // "Figurinha" no canto para o agente reconhecer o tipo original.
   return (
-    <div className="relative inline-block">
-      <img
+    <>
+      <div className="group/media relative inline-block">
+        <img
+          src={src ?? ""}
+          alt="Figurinha"
+          className="max-h-64 max-w-60 cursor-zoom-in rounded-lg object-cover"
+          onClick={() => setOpen(true)}
+          onError={() => setError(true)}
+        />
+        <span
+          className="absolute bottom-1 left-1 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
+          title="Figurinha"
+        >
+          <Sticker className="h-3 w-3" />
+          Figurinha
+        </span>
+        <DownloadOverlayButton
+          onClick={() => downloadMedia(url, "figurinha.webp")}
+        />
+      </div>
+      <MediaLightbox
+        open={open}
+        onClose={() => setOpen(false)}
         src={src ?? ""}
-        alt="Figurinha"
-        className="max-h-64 max-w-60 rounded-lg object-cover"
-        onError={() => setError(true)}
+        originalUrl={url}
+        filename="figurinha.webp"
+        kind="image"
       />
-      <span
-        className="absolute bottom-1 left-1 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm"
-        title="Figurinha"
-      >
-        <Sticker className="h-3 w-3" />
-        Figurinha
-      </span>
-    </div>
+    </>
   );
 }
 
 function MediaVideo({ url }: { url: string }) {
   const { src, error, loading } = useResolvedMediaUrl(url);
+  const [open, setOpen] = useState(false);
   const t = useTranslations("Inbox.bubble");
   if (error) return <MediaUnavailable label={t("video")} t={t} />;
   if (loading) {
@@ -185,7 +263,29 @@ function MediaVideo({ url }: { url: string }) {
       </div>
     );
   }
-  return <video src={src ?? ""} controls className="max-h-64 max-w-60 rounded-lg" />;
+  return (
+    <>
+      <div className="group/media relative inline-block">
+        <video
+          src={src ?? ""}
+          controls
+          className="max-h-64 max-w-60 rounded-lg"
+          onDoubleClick={() => setOpen(true)}
+        />
+        <DownloadOverlayButton
+          onClick={() => downloadMedia(url, "video.mp4")}
+        />
+      </div>
+      <MediaLightbox
+        open={open}
+        onClose={() => setOpen(false)}
+        src={src ?? ""}
+        originalUrl={url}
+        filename="video.mp4"
+        kind="video"
+      />
+    </>
+  );
 }
 
 function MediaAudio({ url }: { url: string }) {
@@ -193,22 +293,46 @@ function MediaAudio({ url }: { url: string }) {
   const t = useTranslations("Inbox.bubble");
   if (error) return <MediaUnavailable label={t("audio")} t={t} />;
   if (loading) return <div className="h-8 w-60 rounded-lg bg-muted" />;
-  return <audio src={src ?? ""} controls className="max-w-60" />;
+  return (
+    <div className="flex items-center gap-2">
+      <audio src={src ?? ""} controls className="max-w-60" />
+      <button
+        type="button"
+        onClick={() => downloadMedia(url, "audio.ogg")}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Baixar áudio"
+        title="Baixar áudio"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
 }
 
 function MediaDocument({ url, label }: { url: string; label: string }) {
   const { src } = useResolvedMediaUrl(url);
   return (
-    <a
-      href={src ?? url}
-      download={label || true}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
-    >
-      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{label}</span>
-    </a>
+    <div className="flex items-center gap-2">
+      <a
+        href={src ?? url}
+        download={label || true}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex flex-1 items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
+      >
+        <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{label}</span>
+      </a>
+      <button
+        type="button"
+        onClick={() => downloadMedia(url, label)}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Baixar"
+        title="Baixar"
+      >
+        <Download className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 

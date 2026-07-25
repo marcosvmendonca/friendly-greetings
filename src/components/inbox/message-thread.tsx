@@ -27,6 +27,8 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Trash2,
+  MoreVertical,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -109,6 +111,10 @@ interface MessageThreadProps {
    */
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
+  /** Remove uma mensagem do thread e da conversa. */
+  onDeleteMessage?: (messageId: string) => void;
+  /** Exclui a conversa inteira. */
+  onDeleteConversation?: (conversationId: string) => void;
 }
 
 function formatDateSeparator(dateStr: string, t: ReturnType<typeof useTranslations>): string {
@@ -167,6 +173,8 @@ export function MessageThread({
   onRefresh,
   contactPanelOpen,
   onToggleContactPanel,
+  onDeleteMessage,
+  onDeleteConversation,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
   const tTimer = useTranslations("Inbox.sessionTimer");
@@ -838,6 +846,51 @@ export function MessageThread({
     [conversation, onAssignChange],
   );
 
+  const handleDeleteMessage = useCallback(
+    async (msg: Message) => {
+      try {
+        const res = await fetch(`/api/whatsapp/messages/${msg.id}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error || "Falha ao excluir mensagem");
+        }
+        onDeleteMessage?.(msg.id);
+        toast.success("Mensagem excluída");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Falha ao excluir");
+      }
+    },
+    [onDeleteMessage],
+  );
+
+  const handleDeleteConversation = useCallback(async () => {
+    if (!conversation) return;
+    if (
+      !window.confirm(
+        "Excluir esta conversa e todas as mensagens? Essa ação não pode ser desfeita.",
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/whatsapp/conversations/${conversation.id}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Falha ao excluir conversa");
+      }
+      onDeleteConversation?.(conversation.id);
+      toast.success("Conversa excluída");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao excluir");
+    }
+  }, [conversation, onDeleteConversation]);
+
+
   // Empty state — same WhatsApp-style doodle background as the active
   // thread below, so swapping between empty/selected doesn't change the
   // pattern under the user's eye.
@@ -963,6 +1016,28 @@ export function MessageThread({
                 className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
               />
             </button>
+          )}
+
+          {/* Menu de mais ações — excluir conversa */}
+          {onDeleteConversation && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Mais ações"
+                title="Mais ações"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="border-border bg-popover">
+                <DropdownMenuItem
+                  onClick={handleDeleteConversation}
+                  className="text-sm text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Excluir conversa
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
 
           {/* Status dropdown */}
@@ -1115,6 +1190,7 @@ export function MessageThread({
                         onReact={(emoji) => {
                           if (emoji) void postReaction(msg.id, emoji);
                         }}
+                        onDelete={onDeleteMessage ? handleDeleteMessage : undefined}
                       >
                         <MessageBubble
                           message={msg}
