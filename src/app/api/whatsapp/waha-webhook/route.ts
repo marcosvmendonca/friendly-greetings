@@ -879,13 +879,17 @@ async function fetchWahaMediaBytes(
   return null;
 }
 
+type StoreMediaResult = { url: string | null; reason: string | null };
+
 async function storeWahaMedia(
   admin: SupabaseClient,
   config: WahaConfigRow,
   normalized: NormalizedWahaMessageFull,
   wahaBaseUrl: string,
-): Promise<string | null> {
-  if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) return null;
+): Promise<StoreMediaResult> {
+  if (!MEDIA_CONTENT_TYPES.has(normalized.contentType)) {
+    return { url: null, reason: 'not-media' };
+  }
   let apiKey = '';
   if (config.waha_api_key) {
     try {
@@ -894,7 +898,9 @@ async function storeWahaMedia(
       console.warn('[waha-webhook] WAHA api key decrypt failed', err instanceof Error ? err.message : err);
     }
   }
-  if (!apiKey && !normalized.bundle.data) return null;
+  if (!apiKey && !normalized.bundle.data) {
+    return { url: null, reason: 'no-api-key-and-no-inline-data' };
+  }
 
   let bundle = normalized.bundle;
   if (!hasMediaBytes(bundle) && apiKey) {
@@ -908,7 +914,12 @@ async function storeWahaMedia(
   }
 
   const fetched = await fetchWahaMediaBytes(bundle, wahaBaseUrl, apiKey);
-  if (!fetched || fetched.bytes.byteLength === 0) return null;
+  if (!fetched || fetched.bytes.byteLength === 0) {
+    return {
+      url: null,
+      reason: `fetch-empty (bundle.url=${bundle.url ? 'yes' : 'no'}, bundle.data=${bundle.data ? 'yes' : 'no'})`,
+    };
+  }
 
   const mime = fetched.mime ?? normalizeMime(normalized.mimetype) ?? 'application/octet-stream';
   const ext = extForContent(normalized.contentType, mime, normalized.filename);
@@ -926,10 +937,10 @@ async function storeWahaMedia(
     });
   if (upErr) {
     console.warn('[waha-webhook] storage upload failed', upErr.message);
-    return null;
+    return { url: null, reason: `upload-failed: ${upErr.message}` };
   }
   const { data } = admin.storage.from('chat-media').getPublicUrl(path);
-  return data.publicUrl ?? null;
+  return { url: data.publicUrl ?? null, reason: null };
 }
 
 async function fetchWahaContactInfo(
@@ -1283,6 +1294,8 @@ export async function POST(request: Request) {
     // we fall back to `normalized.mediaUrl` — the on-demand proxy path
     // that tries again at render time.
     let mediaUrl = normalized.mediaUrl;
+    let storageReason: string | null = null;
+    let storageUrl: string | null = null;
     if (
       MEDIA_CONTENT_TYPES.has(normalized.contentType) &&
       config.waha_base_url
@@ -1293,7 +1306,9 @@ export async function POST(request: Request) {
         normalized,
         (config.waha_base_url as string).replace(/\/+$/, ''),
       );
-      if (stored) mediaUrl = stored;
+      storageUrl = stored.url;
+      storageReason = stored.reason;
+      if (stored.url) mediaUrl = stored.url;
     }
     const { error: msgErr } = await admin.from('messages').insert({
       conversation_id: conversationId,
@@ -1310,6 +1325,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false }, { status: 500 });
     }
     insertedMessage = true;
+    // Surface storage outcome in debug so the inbox debug panel shows
+    // WHY a given media message fell back to the on-demand proxy URL.
+    if (debugAdmin && MEDIA_CONTENT_TYPES.has(normalized.contentType)) {
+      void logDebugEvent(debugAdmin, {
+        account_id: config.account_id,
+        session,
+        event,
+        chat_id: normalized.chatId,
+        phone: normalized.phone,
+        message_id: normalized.messageId,
+        outcome: storageUrl ? 'media-stored' : 'media-fallback',
+        reason: storageReason,
+        normalized: { storageUrl, storageReason, bundle: normalized.bundle },
+      });
+    }
   }
 
   const currentUnreadCount = (existingConv?.unread_count as number | null) ?? 0;
@@ -1341,6 +1371,11 @@ export async function POST(request: Request) {
       phone: normalized.phone,
       message_id: normalized.messageId,
       outcome: insertedMessage ? 'stored' : 'duplicate',
+      // Include the full raw body so the debug panel can show WAHA's
+      // original payload next to the DB row we created. Prior versions
+      // dropped this, which made it impossible to diagnose which field
+      // was missing (pushName, media, contact.number, …).
+      payload: body,
       normalized,
     });
   }
