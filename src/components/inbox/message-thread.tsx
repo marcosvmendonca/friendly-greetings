@@ -1297,6 +1297,7 @@ export function MessageThread({
       />
 
       {/* Composer */}
+      <TypingIndicator conversationId={conversation.id} />
       <MessageComposer
         conversationId={conversation.id}
         sessionExpired={sessionInfo.expired}
