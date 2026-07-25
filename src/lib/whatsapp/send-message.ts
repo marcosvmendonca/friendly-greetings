@@ -388,7 +388,7 @@ export async function sendMessageToConversation(
         const { id } = await sendWahaMedia(
           wahaCfg,
           phone,
-          messageType as 'image' | 'video' | 'document' | 'audio',
+          messageType as 'image' | 'video' | 'document' | 'audio' | 'sticker',
           mediaUrl!,
           contentText || null,
           filename || null,
@@ -403,6 +403,14 @@ export async function sendMessageToConversation(
         wahaPreferredChatId,
       );
       return id;
+    }
+
+    if (messageType === 'sticker') {
+      throw new SendMessageError(
+        'unsupported_by_provider',
+        'Envio de figurinhas ainda não é suportado pela API oficial da Meta. Use a API WAHA para enviar figurinhas.',
+        400,
+      );
     }
 
     if (messageType === 'template') {
