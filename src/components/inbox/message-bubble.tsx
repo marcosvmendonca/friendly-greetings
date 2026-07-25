@@ -189,6 +189,7 @@ function MediaDocument({ url, label }: { url: string; label: string }) {
   return (
     <a
       href={src ?? url}
+      download={label || true}
       target="_blank"
       rel="noopener noreferrer"
       className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm hover:bg-muted"
