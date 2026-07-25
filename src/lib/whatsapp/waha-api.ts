@@ -323,3 +323,53 @@ export async function sendWahaReaction(
     }),
   });
 }
+
+// --------- history fetch (para o botão "Carregar histórico") ---------
+
+export interface WahaChatSummary {
+  id: string;
+  name?: string | null;
+  isGroup?: boolean;
+  lastMessage?: unknown;
+}
+
+/**
+ * Lista as conversas conhecidas pelo motor WAHA. Usada para o sync
+ * global (puxar todas as conversas do celular). A resposta bruta varia
+ * por motor (GOWS/NOWEB); expomos apenas os campos que consumimos.
+ */
+export async function fetchWahaChats(cfg: WahaConfig, limit = 100): Promise<WahaChatSummary[]> {
+  const res = await wahaFetch(
+    cfg,
+    `/api/${encodeURIComponent(cfg.session)}/chats?limit=${limit}`,
+    { method: 'GET' },
+  );
+  const json = (await res.json().catch(() => [])) as unknown;
+  if (!Array.isArray(json)) return [];
+  return (json as Array<Record<string, unknown>>).map((c) => ({
+    id: String(c.id ?? ''),
+    name: (c.name as string | null | undefined) ?? null,
+    isGroup: Boolean(c.isGroup),
+    lastMessage: c.lastMessage,
+  }));
+}
+
+/**
+ * Puxa as últimas N mensagens de um chat. O payload de cada item
+ * segue o mesmo shape que o WAHA envia no webhook `message` event,
+ * então dá para reprocessá-los pela mesma rota de webhook.
+ */
+export async function fetchWahaChatMessages(
+  cfg: WahaConfig,
+  chatId: string,
+  limit = 100,
+): Promise<unknown[]> {
+  const normalizedChatId = normalizeWahaChatId(chatId);
+  const res = await wahaFetch(
+    cfg,
+    `/api/${encodeURIComponent(cfg.session)}/chats/${encodeURIComponent(normalizedChatId)}/messages?limit=${limit}&downloadMedia=true`,
+    { method: 'GET' },
+  );
+  const json = (await res.json().catch(() => [])) as unknown;
+  return Array.isArray(json) ? json : [];
+}
