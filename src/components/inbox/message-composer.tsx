@@ -679,6 +679,10 @@ export function MessageComposer({
                 <FileText className="mr-2 h-4 w-4" />
                 {t("document")}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => stickerInputRef.current?.click()}>
+                <Sticker className="mr-2 h-4 w-4" />
+                Figurinha (webp)
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void startRecording()}>
                 <Mic className="mr-2 h-4 w-4" />
                 {t("voiceNote")}
