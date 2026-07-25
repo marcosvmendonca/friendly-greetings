@@ -1343,11 +1343,11 @@ export async function POST(request: Request) {
     }
     const { error: msgErr } = await admin.from('messages').insert({
       conversation_id: conversationId,
-      sender_type: 'customer',
+      sender_type: normalized.fromMe ? 'agent' : 'customer',
       content_type: normalized.contentType,
       content_text: normalized.contentText,
       media_url: mediaUrl,
-      status: 'delivered',
+      status: normalized.fromMe ? 'sent' : 'delivered',
       message_id: normalized.messageId,
       created_at: normalized.createdAt,
     });
