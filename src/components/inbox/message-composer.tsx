@@ -883,6 +883,14 @@ function MediaDraftPreview({
               <span className="truncate">{draft.filename}</span>
             </div>
           )}
+          {draft.kind === "sticker" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={draft.mediaUrl}
+              alt={draft.filename}
+              className="max-h-32 rounded-lg object-contain"
+            />
+          )}
         </div>
         <button
           type="button"
