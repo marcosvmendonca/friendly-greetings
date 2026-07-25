@@ -507,7 +507,32 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   if (IGNORED_WAHA_TYPES.has(rawType)) return null;
   const createdAt = resolveMessageCreatedAt(msg);
   const bundle = resolveMediaBundle(msg);
+  // Detect media type from GOWS proto messages when the top-level `type`
+  // is missing (common for outbound message.any events mirrored from
+  // another device). Info.MediaType looks like "image"/"video"/
+  // "audio"/"ptt"/"document"/"user_created_sticker"/"animated_sticker".
+  const inferredFromInfo =
+    infoMediaType.includes('sticker') ? 'sticker'
+      : infoMediaType.startsWith('image') ? 'image'
+      : infoMediaType.startsWith('video') || infoMediaType.startsWith('gif') ? 'video'
+      : infoMediaType.startsWith('audio') || infoMediaType === 'ptt' || infoMediaType === 'voice' ? 'audio'
+      : infoMediaType.startsWith('document') ? 'document'
+      : null;
+  const inferredFromProto = getRecord(dataMessage, 'imageMessage') || getRecord(dataMessage, 'ImageMessage')
+    ? 'image'
+    : getRecord(dataMessage, 'videoMessage') || getRecord(dataMessage, 'VideoMessage')
+    ? 'video'
+    : getRecord(dataMessage, 'audioMessage') || getRecord(dataMessage, 'AudioMessage')
+    ? 'audio'
+    : getRecord(dataMessage, 'documentMessage') || getRecord(dataMessage, 'DocumentMessage')
+    ? 'document'
+    : hasStickerMessage
+    ? 'sticker'
+    : null;
   let contentType = mapWahaContentType(rawType, bundle.mimetype);
+  if (contentType === 'text' && (inferredFromInfo || inferredFromProto)) {
+    contentType = (inferredFromInfo ?? inferredFromProto) as string;
+  }
   if (
     hasStickerMessage ||
     infoMediaType.includes('sticker') ||
@@ -515,6 +540,7 @@ function normalizeWahaMessage(body: WahaWebhookPayload, session: string): Normal
   ) {
     contentType = 'sticker';
   }
+
   let contentText = resolveMessageBody(msg);
   // For documents, prefer the filename as visible label when no caption
   // was provided — otherwise the bubble would render just an icon.
