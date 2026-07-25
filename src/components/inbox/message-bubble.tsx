@@ -15,7 +15,10 @@ import {
   CornerDownLeft,
   Sparkles,
   Sticker,
+  Download,
 } from "lucide-react";
+import { MediaLightbox } from "./media-lightbox";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
 import { MessageReactions } from "./message-reactions";
