@@ -926,7 +926,7 @@ function MediaDraftPreview({
           onClick={onSend}
           className={cn(
             "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
-            draft.kind === "audio" && "ml-auto",
+            (draft.kind === "audio" || draft.kind === "sticker") && "ml-auto",
           )}
         >
           <Send className="h-4 w-4" />
