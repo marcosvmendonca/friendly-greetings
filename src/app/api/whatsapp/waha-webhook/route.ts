@@ -1332,6 +1332,19 @@ export async function POST(request: Request) {
     messageId: normalized.messageId,
   });
 
+  if (debugAdmin) {
+    void logDebugEvent(debugAdmin, {
+      account_id: config.account_id,
+      session,
+      event,
+      chat_id: normalized.chatId,
+      phone: normalized.phone,
+      message_id: normalized.messageId,
+      outcome: insertedMessage ? 'stored' : 'duplicate',
+      normalized,
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }
 
