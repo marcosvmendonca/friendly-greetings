@@ -1018,8 +1018,8 @@ export function MessageThread({
             </button>
           )}
 
-          {/* Menu de mais ações — excluir conversa */}
-          {onDeleteConversation && (
+          {/* Menu de mais ações — sincronizar histórico + excluir conversa */}
+          {(onDeleteConversation || conversation) && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1030,12 +1030,83 @@ export function MessageThread({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="border-border bg-popover">
                 <DropdownMenuItem
-                  onClick={handleDeleteConversation}
-                  className="text-sm text-destructive focus:text-destructive"
+                  onClick={async () => {
+                    if (!conversation) return;
+                    const tId = toast.loading("Carregando histórico do WhatsApp…");
+                    try {
+                      const res = await fetch(
+                        `/api/whatsapp/conversations/${conversation.id}/sync`,
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ limit: 100 }),
+                        },
+                      );
+                      const body = await res.json().catch(() => ({}));
+                      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+                      toast.success(
+                        `Histórico sincronizado: ${body.ingested ?? 0} mensagem(ns)`,
+                        { id: tId },
+                      );
+                      onRefresh?.();
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Falha ao sincronizar",
+                        { id: tId },
+                      );
+                    }
+                  }}
+                  className="text-sm"
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Excluir conversa
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Carregar histórico do WhatsApp
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        "Sincronizar TODAS as conversas do WhatsApp? Pode demorar alguns minutos.",
+                      )
+                    )
+                      return;
+                    const tId = toast.loading("Sincronizando todas as conversas…");
+                    try {
+                      const res = await fetch("/api/whatsapp/waha/sync-all", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ limitPerChat: 30, maxChats: 50 }),
+                      });
+                      const body = await res.json().catch(() => ({}));
+                      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
+                      toast.success(
+                        `${body.chats_processed ?? 0} conversa(s), ${body.ingested ?? 0} mensagem(ns)`,
+                        { id: tId },
+                      );
+                      onRefresh?.();
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Falha ao sincronizar",
+                        { id: tId },
+                      );
+                    }
+                  }}
+                  className="text-sm"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Sincronizar todas as conversas
+                </DropdownMenuItem>
+                {onDeleteConversation && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={handleDeleteConversation}
+                      className="text-sm text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Excluir conversa
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

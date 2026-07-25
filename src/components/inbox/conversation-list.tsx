@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, Check } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { BulkActionsBar } from "./bulk-actions-bar";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -34,6 +35,8 @@ interface ConversationListProps {
    * or the tab was throttled. Optional so existing callers keep working.
    */
   resyncToken?: number;
+  /** Callback bumped after a bulk action succeeds — parent pode refetch. */
+  onRequestResync?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -52,8 +55,30 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  onRequestResync,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
+
+  // Modo de seleção múltipla (long-press / clique-direito).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionMode = selectedIds.size > 0;
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleBulkDone = useCallback(() => {
+    clearSelection();
+    onRequestResync?.();
+  }, [clearSelection, onRequestResync]);
+
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
@@ -396,6 +421,14 @@ export function ConversationList({
           every conversation instead of shrinking to the remaining
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
+      {selectionMode && (
+        <BulkActionsBar
+          selectedIds={Array.from(selectedIds)}
+          onClear={clearSelection}
+          onDone={handleBulkDone}
+        />
+      )}
+
       <ScrollArea className="min-h-0 flex-1">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -413,6 +446,9 @@ export function ConversationList({
                 conversation={conv}
                 isActive={conv.id === activeConversationId}
                 onSelect={handleSelect}
+                selectionMode={selectionMode}
+                isSelected={selectedIds.has(conv.id)}
+                onToggleSelected={toggleSelected}
                 t={t}
               />
             ))}
@@ -427,6 +463,9 @@ interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
   onSelect: (conversation: Conversation) => void;
+  selectionMode: boolean;
+  isSelected: boolean;
+  onToggleSelected: (id: string) => void;
   t: ReturnType<typeof useTranslations>;
 }
 
@@ -434,15 +473,53 @@ function ConversationItem({
   conversation,
   isActive,
   onSelect,
+  selectionMode,
+  isSelected,
+  onToggleSelected,
   t,
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
   const initials = displayName.charAt(0).toUpperCase();
 
+  // Long-press (touch) e clique-direito (mouse) entram no modo seleção.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  const startLongPress = useCallback(() => {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      onToggleSelected(conversation.id);
+    }, 500);
+  }, [conversation.id, onToggleSelected]);
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
   const handleClick = useCallback(() => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    if (selectionMode) {
+      onToggleSelected(conversation.id);
+      return;
+    }
     onSelect(conversation);
-  }, [onSelect, conversation]);
+  }, [conversation, onSelect, onToggleSelected, selectionMode]);
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      onToggleSelected(conversation.id);
+    },
+    [conversation.id, onToggleSelected],
+  );
 
   const timeAgo = conversation.last_message_at
     ? formatDistanceToNow(new Date(conversation.last_message_at), {
@@ -453,23 +530,42 @@ function ConversationItem({
   return (
     <button
       onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onTouchStart={startLongPress}
+      onTouchEnd={cancelLongPress}
+      onTouchMove={cancelLongPress}
+      onTouchCancel={cancelLongPress}
       className={cn(
         "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/50",
-        isActive && "border-l-2 border-primary bg-muted/70"
+        isActive && !selectionMode && "border-l-2 border-primary bg-muted/70",
+        isSelected && "bg-primary/10",
       )}
     >
-      {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-        {contact?.avatar_url ? (
-          <img
-            src={contact.avatar_url}
-            alt={displayName}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
-          initials
-        )}
-      </div>
+      {/* Checkbox visível apenas no modo seleção; substitui o avatar */}
+      {selectionMode ? (
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2",
+            isSelected
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-muted-foreground/40 bg-transparent",
+          )}
+        >
+          {isSelected && <Check className="h-4 w-4" />}
+        </div>
+      ) : (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
+          {contact?.avatar_url ? (
+            <img
+              src={contact.avatar_url}
+              alt={displayName}
+              className="h-10 w-10 rounded-full object-cover"
+            />
+          ) : (
+            initials
+          )}
+        </div>
+      )}
 
       {/* Content */}
       <div className="min-w-0 flex-1">
