@@ -271,19 +271,26 @@ export async function sendWahaMedia(
         ? '/api/sendVideo'
         : kind === 'audio'
           ? '/api/sendVoice'
-          : '/api/sendFile';
+          : kind === 'sticker'
+            ? '/api/sendImage'
+            : '/api/sendFile';
   const file: Record<string, unknown> = { url: mediaUrl };
   if (filename) file.filename = filename;
+  // Stickers ride the image endpoint but must be tagged as image/webp so
+  // engines that treat webp uploads specially render them as a sticker.
+  if (kind === 'sticker') file.mimetype = 'image/webp';
   const body: Record<string, unknown> = {
     session: cfg.session,
     chatId,
     file,
   };
-  if (caption && kind !== 'audio') body.caption = caption;
+  if (caption && kind !== 'audio' && kind !== 'sticker') body.caption = caption;
   // WAHA-Plus transcodes non-OGG uploads to opus voice notes when this
   // flag is set — the browser recorder produces webm/mp4, so without it
   // the send fails with "unsupported audio format".
   if (kind === 'audio') body.convert = true;
+  // Hint to engines that support it that this is a sticker send.
+  if (kind === 'sticker') body.asSticker = true;
 
   const res = await wahaFetch(cfg, endpoint, {
     method: 'POST',
