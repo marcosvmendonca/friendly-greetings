@@ -45,7 +45,7 @@ import {
 import type { MessageTemplate } from '@/types';
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard';
 
-export const MEDIA_KINDS = ['image', 'video', 'document', 'audio'] as const;
+export const MEDIA_KINDS = ['image', 'video', 'document', 'audio', 'sticker'] as const;
 export const VALID_MESSAGE_TYPES = [
   'text',
   'template',
