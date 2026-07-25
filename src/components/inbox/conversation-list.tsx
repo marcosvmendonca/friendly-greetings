@@ -35,6 +35,8 @@ interface ConversationListProps {
    * or the tab was throttled. Optional so existing callers keep working.
    */
   resyncToken?: number;
+  /** Callback bumped after a bulk action succeeds — parent pode refetch. */
+  onRequestResync?: () => void;
 }
 
 const STATUS_COLORS: Record<ConversationStatus, string> = {
@@ -53,8 +55,30 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  onRequestResync,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
+
+  // Modo de seleção múltipla (long-press / clique-direito).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionMode = selectedIds.size > 0;
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  const handleBulkDone = useCallback(() => {
+    clearSelection();
+    onRequestResync?.();
+  }, [clearSelection, onRequestResync]);
+
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
