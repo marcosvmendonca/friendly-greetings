@@ -252,7 +252,7 @@ export async function sendWahaText(
   return { id };
 }
 
-export type WahaMediaKind = 'image' | 'video' | 'document' | 'audio';
+export type WahaMediaKind = 'image' | 'video' | 'document' | 'audio' | 'sticker';
 
 export async function sendWahaMedia(
   cfg: WahaConfig,
