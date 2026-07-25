@@ -317,6 +317,7 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         documentMessage?.url,
         documentMessage?.deprecatedMms3Url,
         stickerMessage?.url,
+        stickerMessage?.URL,
         stickerMessage?.deprecatedMms3Url,
       ) ?? null,
     data:
