@@ -846,6 +846,51 @@ export function MessageThread({
     [conversation, onAssignChange],
   );
 
+  const handleDeleteMessage = useCallback(
+    async (msg: Message) => {
+      try {
+        const res = await fetch(`/api/whatsapp/messages/${msg.id}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error || "Falha ao excluir mensagem");
+        }
+        onDeleteMessage?.(msg.id);
+        toast.success("Mensagem excluída");
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Falha ao excluir");
+      }
+    },
+    [onDeleteMessage],
+  );
+
+  const handleDeleteConversation = useCallback(async () => {
+    if (!conversation) return;
+    if (
+      !window.confirm(
+        "Excluir esta conversa e todas as mensagens? Essa ação não pode ser desfeita.",
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/whatsapp/conversations/${conversation.id}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || "Falha ao excluir conversa");
+      }
+      onDeleteConversation?.(conversation.id);
+      toast.success("Conversa excluída");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao excluir");
+    }
+  }, [conversation, onDeleteConversation]);
+
+
   // Empty state — same WhatsApp-style doodle background as the active
   // thread below, so swapping between empty/selected doesn't change the
   // pattern under the user's eye.
