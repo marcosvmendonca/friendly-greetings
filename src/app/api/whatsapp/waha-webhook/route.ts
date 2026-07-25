@@ -1374,7 +1374,9 @@ export async function POST(request: Request) {
   }
 
   const currentUnreadCount = (existingConv?.unread_count as number | null) ?? 0;
-  const nextUnreadCount = insertedMessage ? currentUnreadCount + 1 : currentUnreadCount;
+  // Messages we sent from another device shouldn't bump the unread badge.
+  const nextUnreadCount =
+    insertedMessage && !normalized.fromMe ? currentUnreadCount + 1 : currentUnreadCount;
   await admin
     .from('conversations')
     .update({
