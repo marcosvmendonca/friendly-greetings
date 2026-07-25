@@ -599,6 +599,15 @@ export function MessageComposer({
           e.target.value = "";
         }}
       />
+      <input
+        ref={stickerInputRef}
+        type="file"
+        accept={PICKER_ACCEPT.sticker}
+        className="hidden"
+        onChange={(e) => {
+          handlePicked("sticker", e.target.files?.[0]);
+          e.target.value = "";
+        }}
 
       {draft ? (
         <MediaDraftPreview
