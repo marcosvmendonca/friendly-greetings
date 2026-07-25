@@ -1190,6 +1190,7 @@ export function MessageThread({
                         onReact={(emoji) => {
                           if (emoji) void postReaction(msg.id, emoji);
                         }}
+                        onDelete={onDeleteMessage ? handleDeleteMessage : undefined}
                       >
                         <MessageBubble
                           message={msg}
