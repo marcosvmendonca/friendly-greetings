@@ -20,6 +20,7 @@ interface MessageActionsProps {
   message: Message;
   onReply: () => void;
   onReact: (emoji: string) => void;
+  onDelete?: (message: Message) => void;
   children: ReactNode;
 }
 
@@ -32,6 +33,7 @@ export function MessageActions({
   message,
   onReply,
   onReact,
+  onDelete,
   children,
 }: MessageActionsProps) {
   const t = useTranslations("Inbox.actions");
@@ -144,6 +146,22 @@ export function MessageActions({
         >
           <Copy className="h-3.5 w-3.5" />
         </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm("Excluir esta mensagem?")) {
+                onDelete(message);
+                setTouchOpen(false);
+              }
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-popover-foreground hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Excluir mensagem"
+            title="Excluir"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
       </div>
     </div>
