@@ -415,7 +415,7 @@ export function MessageComposer({
   );
 
   const handlePicked = useCallback(
-    (kind: "image" | "video" | "document", file: File | undefined) => {
+    (kind: "image" | "video" | "document" | "sticker", file: File | undefined) => {
       if (file) void stageUpload(kind, file);
     },
     [stageUpload],
