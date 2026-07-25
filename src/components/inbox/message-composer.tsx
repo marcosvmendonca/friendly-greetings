@@ -903,7 +903,7 @@ function MediaDraftPreview({
       </div>
 
       <div className="mt-2 flex items-end gap-2">
-        {draft.kind !== "audio" && (
+        {draft.kind !== "audio" && draft.kind !== "sticker" && (
           <input
             value={draft.caption}
             maxLength={MEDIA_CAPTION_MAX}
