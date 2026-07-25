@@ -56,6 +56,7 @@ import {
 import { validateInteractivePayload } from "@/lib/whatsapp/interactive";
 import type { InteractiveMessagePayload, QuickReply } from "@/types";
 import { QuickReplyPicker } from "./quick-reply-picker";
+import { useTypingPresence } from "@/hooks/use-typing-presence";
 
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio" | "sticker";
@@ -195,6 +196,10 @@ export function MessageComposer({
   // Media (like free-form text) is only allowed inside the 24h window.
   const inputsDisabled = readOnly || sessionExpired;
 
+  // Team-wide typing/recording indicator (broadcast, not DB) — lets
+  // multiple agents in the same inbox see each other's activity live.
+  const { report: reportActivity } = useTypingPresence(conversationId);
+
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
       clearInterval(timerRef.current);
@@ -231,13 +236,23 @@ export function MessageComposer({
     try {
       onSend(trimmed, replyTo?.id);
       setText("");
+      reportActivity(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
       }
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id]);
+  }, [text, sending, sessionExpired, onSend, replyTo?.id, reportActivity]);
+
+  // Broadcast recording start/stop so peers see "gravando áudio…".
+  useEffect(() => {
+    if (recording) reportActivity("recording");
+    // When recording stops, the text-change handler (or handleSend)
+    // takes over the activity state — but if the composer is empty and
+    // we're not recording, make sure the indicator is cleared.
+    else if (text.trim().length === 0) reportActivity(null);
+  }, [recording, text, reportActivity]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -251,10 +266,14 @@ export function MessageComposer({
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setText(e.target.value);
+      const value = e.target.value;
+      setText(value);
       adjustHeight();
+      // Broadcast "typing" to peers (throttled inside the hook); clear
+      // as soon as the field goes empty so the indicator disappears.
+      reportActivity(value.trim().length > 0 ? "typing" : null);
     },
-    [adjustHeight]
+    [adjustHeight, reportActivity],
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the

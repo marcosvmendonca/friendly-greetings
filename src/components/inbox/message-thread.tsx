@@ -48,6 +48,7 @@ import {
   CHAT_MEDIA_BUCKET,
   type SendMediaPayload,
 } from "./message-composer";
+import { TypingIndicator } from "./typing-indicator";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
 import { TemplatePicker } from "./template-picker";
 import { AiThreadBanner } from "./ai-thread-banner";
@@ -1297,6 +1298,7 @@ export function MessageThread({
       />
 
       {/* Composer */}
+      <TypingIndicator conversationId={conversation.id} />
       <MessageComposer
         conversationId={conversation.id}
         sessionExpired={sessionInfo.expired}
