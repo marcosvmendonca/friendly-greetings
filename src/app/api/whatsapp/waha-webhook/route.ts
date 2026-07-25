@@ -1396,10 +1396,21 @@ export async function POST(request: Request) {
       created_at: normalized.createdAt,
     });
     if (msgErr) {
-      console.error('[waha-webhook] message insert', msgErr);
-      return NextResponse.json({ ok: false }, { status: 500 });
+      // Migration 039 adds a partial unique index on
+      // (conversation_id, message_id). When WAHA fires `message` and
+      // `message.any` back-to-back — or two webhook invocations race
+      // past the SELECT above — the second INSERT trips the unique
+      // constraint. Swallow it: the row is already stored, so we
+      // treat this call as a duplicate delivery instead of 500'ing.
+      if (isUniqueViolation(msgErr)) {
+        insertedMessage = false;
+      } else {
+        console.error('[waha-webhook] message insert', msgErr);
+        return NextResponse.json({ ok: false }, { status: 500 });
+      }
+    } else {
+      insertedMessage = true;
     }
-    insertedMessage = true;
     // Surface storage outcome in debug so the inbox debug panel shows
     // WHY a given media message fell back to the on-demand proxy URL.
     if (debugAdmin && MEDIA_CONTENT_TYPES.has(normalized.contentType)) {
