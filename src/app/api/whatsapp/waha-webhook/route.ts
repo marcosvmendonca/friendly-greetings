@@ -159,7 +159,7 @@ function isGroupOrBroadcast(value: string): boolean {
   );
 }
 
-function resolveSenderChatId(msg: JsonRecord): string | null {
+function resolveSenderChatId(msg: JsonRecord, fromMe = false): string | null {
   const data = getRecord(msg, '_data');
   const id = getRecord(msg, 'id');
   const dataId = getRecord(data, 'id');
@@ -167,8 +167,6 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const dataKey = getRecord(data, 'key');
   const sender = getRecord(msg, 'sender');
 
-  // Any of these boolean/string markers means the payload is a group,
-  // status broadcast, newsletter, or channel message — never a real 1:1.
   if (
     getBoolean(msg, 'isGroupMsg') === true ||
     getBoolean(msg, 'isGroup') === true ||
@@ -181,10 +179,6 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   ) {
     return null;
   }
-  // `participant` on WhatsApp proto usually means group, but the GOWS
-  // engine sometimes emits it on 1:1 media too (device id). Reject only
-  // when the participant itself is a group JID — otherwise fall through
-  // to the chat-id checks below, which are authoritative.
   const participant =
     getString(key, 'participant') ??
     getString(dataKey, 'participant') ??
@@ -192,7 +186,10 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
     getString(data, 'participant');
   if (participant && isGroupOrBroadcast(participant)) return null;
 
-  const candidates = [
+  // When the message was sent from our own account (another device or
+  // WhatsApp Web), `from` is our JID and `to` is the customer. Flip the
+  // priority so the counterparty chat id wins.
+  const inbound = [
     msg.from,
     msg.chatId,
     msg.remoteJid,
@@ -201,6 +198,19 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
     data?.chatId,
     data?.remoteJid,
     data?.to,
+  ];
+  const outbound = [
+    msg.to,
+    msg.chatId,
+    msg.remoteJid,
+    data?.to,
+    data?.chatId,
+    data?.remoteJid,
+    msg.from,
+    data?.from,
+  ];
+  const candidates = [
+    ...(fromMe ? outbound : inbound),
     id?.remote,
     id?.remoteJid,
     dataId?.remote,
@@ -220,9 +230,6 @@ function resolveSenderChatId(msg: JsonRecord): string | null {
   const chatIds = candidates
     .map(extractChatId)
     .filter((value): value is string => Boolean(value));
-  // If any candidate reveals this is a group/broadcast/status/newsletter
-  // chat, reject entirely — never pick a participant jid and promote it
-  // to a fake 1:1 conversation.
   if (chatIds.some(isGroupOrBroadcast)) return null;
   const oneToOne = chatIds.find(isOneToOneChatId) ?? chatIds[0] ?? null;
   return oneToOne ? normalizeWahaChatId(oneToOne) : null;
