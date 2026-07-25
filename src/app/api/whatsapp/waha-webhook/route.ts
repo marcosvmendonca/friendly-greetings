@@ -299,12 +299,20 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
   const media = getRecord(msg, 'media');
   const file = getRecord(msg, 'file');
   const dataMedia = getRecord(data, 'media');
-  const dataMessage = getRecord(data, 'message');
-  const imageMessage = getRecord(dataMessage, 'imageMessage');
-  const videoMessage = getRecord(dataMessage, 'videoMessage');
-  const audioMessage = getRecord(dataMessage, 'audioMessage');
-  const documentMessage = getRecord(dataMessage, 'documentMessage');
-  const stickerMessage = getRecord(dataMessage, 'stickerMessage');
+  // GOWS engine (used for outbound message.any events too) nests the
+  // proto message under PascalCase keys; the JS engine uses lowercase.
+  // Check both so mirrored outbound media surfaces its url/mimetype.
+  const dataMessage = getRecord(data, 'message') ?? getRecord(data, 'Message');
+  const imageMessage =
+    getRecord(dataMessage, 'imageMessage') ?? getRecord(dataMessage, 'ImageMessage');
+  const videoMessage =
+    getRecord(dataMessage, 'videoMessage') ?? getRecord(dataMessage, 'VideoMessage');
+  const audioMessage =
+    getRecord(dataMessage, 'audioMessage') ?? getRecord(dataMessage, 'AudioMessage');
+  const documentMessage =
+    getRecord(dataMessage, 'documentMessage') ?? getRecord(dataMessage, 'DocumentMessage');
+  const stickerMessage =
+    getRecord(dataMessage, 'stickerMessage') ?? getRecord(dataMessage, 'StickerMessage');
   return {
     url:
       firstString(
@@ -316,12 +324,16 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.mediaUrl,
         data?.deprecatedMms3Url,
         imageMessage?.url,
+        imageMessage?.URL,
         imageMessage?.deprecatedMms3Url,
         videoMessage?.url,
+        videoMessage?.URL,
         videoMessage?.deprecatedMms3Url,
         audioMessage?.url,
+        audioMessage?.URL,
         audioMessage?.deprecatedMms3Url,
         documentMessage?.url,
+        documentMessage?.URL,
         documentMessage?.deprecatedMms3Url,
         stickerMessage?.url,
         stickerMessage?.URL,
@@ -344,10 +356,15 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.mimetype,
         msg.mimetype,
         imageMessage?.mimetype,
+        imageMessage?.Mimetype,
         videoMessage?.mimetype,
+        videoMessage?.Mimetype,
         audioMessage?.mimetype,
+        audioMessage?.Mimetype,
         documentMessage?.mimetype,
+        documentMessage?.Mimetype,
         stickerMessage?.mimetype,
+        stickerMessage?.Mimetype,
       ) ?? null,
     filename:
       firstString(
@@ -359,6 +376,7 @@ function resolveMediaBundle(msg: JsonRecord): WahaMediaBundle {
         data?.filename,
         msg.filename,
         documentMessage?.fileName,
+        documentMessage?.FileName,
         documentMessage?.filename,
       ) ?? null,
   };
