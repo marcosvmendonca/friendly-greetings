@@ -633,6 +633,7 @@ function InboxPageInner() {
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            onRequestResync={handleManualRefresh}
           />
         </div>
 
