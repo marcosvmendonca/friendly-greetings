@@ -608,6 +608,9 @@ export function MessageComposer({
           handlePicked("sticker", e.target.files?.[0]);
           e.target.value = "";
         }}
+      />
+
+
 
       {draft ? (
         <MediaDraftPreview
