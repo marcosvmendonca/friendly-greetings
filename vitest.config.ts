@@ -14,5 +14,10 @@ export default defineConfig({
     mockReset: true,
     restoreMocks: true,
     include: ['src/**/*.test.{ts,tsx}'],
+    env: {
+      // Signature tests need a secret; CI/local envs win when set.
+      META_APP_SECRET: process.env.META_APP_SECRET ?? 'test-app-secret',
+    },
   },
+
 })
