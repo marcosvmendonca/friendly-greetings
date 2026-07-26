@@ -21,7 +21,12 @@ import type {
 import { supabaseAdmin } from './admin-client'
 import { addContactTagIfAbsent } from '@/lib/contacts/tag-write'
 import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
-import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
+// Provider-neutral senders (Meta ou WAHA) — ver src/lib/messaging.
+import {
+  sendEngineText as engineSendText,
+  sendEngineTemplate as engineSendTemplate,
+  sendEngineMenu as engineSendInteractive,
+} from '@/lib/messaging'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
 
