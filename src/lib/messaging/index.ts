@@ -100,3 +100,61 @@ export async function sendEngineMenu(
 ): Promise<SendResult> {
   return (await getMessagingProvider(params.accountId)).sendMenu(params)
 }
+
+// ---- Compat helpers matching the legacy meta-send signatures, so the
+// existing engine call sites keep their shape while gaining provider
+// dispatch (Meta → native interactive, WAHA → numbered text menu). ----
+
+import type {
+  InteractiveButton,
+  InteractiveListSection,
+} from '@/lib/whatsapp/meta-api'
+
+interface ButtonsArgs extends SendTextParams {
+  bodyText: string
+  buttons: InteractiveButton[]
+  headerText?: string
+  footerText?: string
+}
+
+interface ListArgs extends SendTextParams {
+  bodyText: string
+  buttonLabel: string
+  sections: InteractiveListSection[]
+  headerText?: string
+  footerText?: string
+}
+
+export async function sendEngineInteractiveButtons(
+  args: Omit<ButtonsArgs, 'text'>,
+): Promise<SendResult> {
+  const { bodyText, buttons, headerText, footerText, ...ctx } = args
+  return sendEngineMenu({
+    ...ctx,
+    payload: {
+      kind: 'buttons',
+      body: bodyText,
+      header: headerText,
+      footer: footerText,
+      buttons,
+    },
+  })
+}
+
+export async function sendEngineInteractiveList(
+  args: Omit<ListArgs, 'text'>,
+): Promise<SendResult> {
+  const { bodyText, buttonLabel, sections, headerText, footerText, ...ctx } =
+    args
+  return sendEngineMenu({
+    ...ctx,
+    payload: {
+      kind: 'list',
+      body: bodyText,
+      button_label: buttonLabel,
+      header: headerText,
+      footer: footerText,
+      sections,
+    },
+  })
+}
