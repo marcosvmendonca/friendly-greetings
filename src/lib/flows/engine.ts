@@ -33,12 +33,15 @@
  */
 
 import { supabaseAdmin } from "./admin-client";
+// Provider-neutral senders: dispatch to Meta or WAHA based on the
+// account's active WhatsApp connection (see src/lib/messaging).
 import {
-  engineSendInteractiveButtons,
-  engineSendInteractiveList,
-  engineSendMedia,
-  engineSendText,
-} from "./meta-send";
+  sendEngineInteractiveButtons as engineSendInteractiveButtons,
+  sendEngineInteractiveList as engineSendInteractiveList,
+  sendEngineMedia as engineSendMedia,
+  sendEngineText as engineSendText,
+} from "@/lib/messaging";
+
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
