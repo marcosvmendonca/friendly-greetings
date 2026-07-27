@@ -4,6 +4,9 @@ import { decrypt } from '@/lib/whatsapp/encryption';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import { runAutomationsForTrigger } from '@/lib/automations/engine';
+import { dispatchInboundToFlows } from '@/lib/flows/engine';
+import type { AutomationTriggerType } from '@/types';
 
 /**
  * Inbound webhook for WAHA (unofficial provider).
@@ -1254,6 +1257,7 @@ export async function POST(request: Request) {
       : null;
   const existing = existingByPhone ?? existingByChatIdPhone;
   let contactId: string | undefined = existing?.id;
+  let contactWasCreated = false;
   let existingName: string | null = (existing?.name as string | null) ?? null;
   let existingAvatar: string | null = (existing?.avatar_url as string | null) ?? null;
 
@@ -1284,6 +1288,7 @@ export async function POST(request: Request) {
     }
     if (inserted?.id) {
       contactId = inserted.id as string;
+      contactWasCreated = true;
       existingName = (inserted.name as string | null) ?? initialName;
       existingAvatar = (inserted.avatar_url as string | null) ?? null;
     } else {
@@ -1352,6 +1357,16 @@ export async function POST(request: Request) {
     conversationId = conversationId ?? convInsert?.id;
   }
   if (!conversationId) return NextResponse.json({ ok: false }, { status: 500 });
+
+  // Whether this is the contact's very first inbound message — computed
+  // BEFORE the insert so `first_inbound_message` stays accurate even for
+  // contacts imported manually who never messaged us before.
+  const { count: priorCustomerMsgCount } = await admin
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer');
+  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
 
   // Insert the message. Idempotent on wamid.
   const { data: existingMsg } = await admin
@@ -1466,6 +1481,53 @@ export async function POST(request: Request) {
       payload: body,
       normalized,
     });
+  }
+
+  // ============================================================
+  // Automation + flow dispatch (mirrors the Meta webhook).
+  //
+  // Only for genuinely new inbound customer messages: duplicates and
+  // messages we sent from another device must never re-trigger a bot.
+  // Flows run first — when a flow consumes the message the customer is
+  // navigating a menu, so the content-level automation triggers are
+  // suppressed. Relationship-level triggers (new contact / first
+  // inbound) fire either way.
+  // ============================================================
+  if (insertedMessage && !normalized.fromMe) {
+    const inboundText = normalized.contentText ?? '';
+    const flowResult = await dispatchInboundToFlows({
+      accountId: config.account_id,
+      userId: config.user_id,
+      contactId,
+      conversationId,
+      message: {
+        kind: 'text',
+        text: inboundText,
+        meta_message_id: normalized.messageId,
+      },
+      isFirstInboundMessage,
+    });
+
+    const automationTriggers: AutomationTriggerType[] = [];
+    if (!flowResult.consumed) {
+      automationTriggers.push('new_message_received', 'keyword_match');
+    }
+    if (contactWasCreated) automationTriggers.unshift('new_contact_created');
+    if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
+
+    for (const triggerType of automationTriggers) {
+      await runAutomationsForTrigger({
+        accountId: config.account_id,
+        triggerType,
+        contactId,
+        context: {
+          message_text: inboundText,
+          conversation_id: conversationId,
+        },
+      }).catch((err) =>
+        console.error('[waha-webhook] automation dispatch failed:', err),
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });
