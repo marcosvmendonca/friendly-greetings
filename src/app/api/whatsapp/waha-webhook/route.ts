@@ -1360,13 +1360,17 @@ export async function POST(request: Request) {
 
   // Whether this is the contact's very first inbound message — computed
   // BEFORE the insert so `first_inbound_message` stays accurate even for
-  // contacts imported manually who never messaged us before.
+  // contacts imported manually who never messaged us before. This is
+  // only a *candidate*: the definitive, race-free decision is the
+  // atomic claim on `conversations.first_inbound_at` below, taken only
+  // after the message row is actually inserted.
   const { count: priorCustomerMsgCount } = await admin
     .from('messages')
     .select('id', { count: 'exact', head: true })
     .eq('conversation_id', conversationId)
     .eq('sender_type', 'customer');
-  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
+  const mayBeFirstInbound = (priorCustomerMsgCount ?? 0) === 0;
+
 
   // Insert the message. Idempotent on wamid.
   const { data: existingMsg } = await admin
