@@ -7,7 +7,8 @@ import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { resolveMenuReply } from '@/lib/messaging/menu-reply';
-import type { AutomationTriggerType } from '@/types';
+import { computeInboundAutomationTriggers } from '@/lib/automations/inbound-triggers';
+
 
 /**
  * Inbound webhook for WAHA (unofficial provider).
