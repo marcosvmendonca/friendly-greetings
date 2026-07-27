@@ -6,6 +6,7 @@ import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
+import { resolveMenuReply } from '@/lib/messaging/menu-reply';
 import type { AutomationTriggerType } from '@/types';
 
 /**
@@ -1381,6 +1382,18 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
   let insertedMessage = false;
+  // WAHA renders menus as numbered text, so a tap comes back as "2" or
+  // "Suporte". Map it to the original button/list id before the insert
+  // so the row carries `interactive_reply_id` exactly like Meta's.
+  let menuReplyId: string | null = null;
+  if (!normalized.fromMe && normalized.contentType === 'text') {
+    const match = await resolveMenuReply(
+      admin,
+      conversationId,
+      normalized.contentText ?? '',
+    ).catch(() => null);
+    menuReplyId = match?.reply_id ?? null;
+  }
   if (!existingMsg) {
     // For media messages, try to persist the binary in Storage BEFORE
     // insert so the row lands with a stable public URL. If the download
@@ -1413,6 +1426,7 @@ export async function POST(request: Request) {
       status: normalized.fromMe ? 'sent' : 'delivered',
       message_id: normalized.messageId,
       created_at: normalized.createdAt,
+      interactive_reply_id: menuReplyId,
     });
     if (msgErr) {
       // Migration 039 adds a partial unique index on
@@ -1524,17 +1538,27 @@ export async function POST(request: Request) {
       userId: config.user_id,
       contactId,
       conversationId,
-      message: {
-        kind: 'text',
-        text: inboundText,
-        meta_message_id: normalized.messageId,
-      },
+      message: menuReplyId
+        ? {
+            kind: 'interactive_reply',
+            reply_id: menuReplyId,
+            reply_title: inboundText,
+            meta_message_id: normalized.messageId,
+          }
+        : {
+            kind: 'text',
+            text: inboundText,
+            meta_message_id: normalized.messageId,
+          },
       isFirstInboundMessage,
     });
 
     const automationTriggers: AutomationTriggerType[] = [];
     if (!flowResult.consumed) {
       automationTriggers.push('new_message_received', 'keyword_match');
+      // Numbered-menu answer resolved back to a button/list id → the
+      // same trigger Meta fires on a native tap.
+      if (menuReplyId) automationTriggers.push('interactive_reply');
     }
     if (contactWasCreated) automationTriggers.unshift('new_contact_created');
     if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
@@ -1547,6 +1571,7 @@ export async function POST(request: Request) {
         context: {
           message_text: inboundText,
           conversation_id: conversationId,
+          interactive_reply_id: menuReplyId ?? undefined,
         },
       }).catch((err) =>
         console.error('[waha-webhook] automation dispatch failed:', err),
