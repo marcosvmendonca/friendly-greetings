@@ -1542,7 +1542,7 @@ export async function POST(request: Request) {
         ? {
             kind: 'interactive_reply',
             reply_id: menuReplyId,
-            title: inboundText,
+            reply_title: inboundText,
             meta_message_id: normalized.messageId,
           }
         : {
