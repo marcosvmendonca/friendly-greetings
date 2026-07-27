@@ -1499,6 +1499,26 @@ export async function POST(request: Request) {
   // ============================================================
   if (insertedMessage && !normalized.fromMe) {
     const inboundText = normalized.contentText ?? '';
+    // Atomic exactly-once claim (migration 040): only the invocation
+    // whose conditional UPDATE actually flips `first_inbound_at` from
+    // NULL is allowed to treat this as the conversation's first inbound
+    // message. Two concurrent webhook deliveries can both read
+    // `priorCustomerMsgCount === 0`, but only one can win this UPDATE.
+    let isFirstInboundMessage = false;
+    if (mayBeFirstInbound) {
+      const { data: claimed, error: claimErr } = await admin
+        .from('conversations')
+        .update({ first_inbound_at: normalized.createdAt })
+        .eq('id', conversationId)
+        .is('first_inbound_at', null)
+        .select('id');
+      if (claimErr) {
+        console.error('[waha-webhook] first-inbound claim failed', claimErr);
+      } else {
+        isFirstInboundMessage = (claimed?.length ?? 0) > 0;
+      }
+    }
+
     const flowResult = await dispatchInboundToFlows({
       accountId: config.account_id,
       userId: config.user_id,
