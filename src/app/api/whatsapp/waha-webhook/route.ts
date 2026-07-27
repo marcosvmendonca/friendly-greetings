@@ -4,6 +4,9 @@ import { decrypt } from '@/lib/whatsapp/encryption';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
 import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
+import { runAutomationsForTrigger } from '@/lib/automations/engine';
+import { dispatchInboundToFlows } from '@/lib/flows/engine';
+import type { AutomationTriggerType } from '@/types';
 
 /**
  * Inbound webhook for WAHA (unofficial provider).
@@ -1478,6 +1481,53 @@ export async function POST(request: Request) {
       payload: body,
       normalized,
     });
+  }
+
+  // ============================================================
+  // Automation + flow dispatch (mirrors the Meta webhook).
+  //
+  // Only for genuinely new inbound customer messages: duplicates and
+  // messages we sent from another device must never re-trigger a bot.
+  // Flows run first — when a flow consumes the message the customer is
+  // navigating a menu, so the content-level automation triggers are
+  // suppressed. Relationship-level triggers (new contact / first
+  // inbound) fire either way.
+  // ============================================================
+  if (insertedMessage && !normalized.fromMe) {
+    const inboundText = normalized.contentText ?? '';
+    const flowResult = await dispatchInboundToFlows({
+      accountId: config.account_id,
+      userId: config.user_id,
+      contactId,
+      conversationId,
+      message: {
+        kind: 'text',
+        text: inboundText,
+        meta_message_id: normalized.messageId,
+      },
+      isFirstInboundMessage,
+    });
+
+    const automationTriggers: AutomationTriggerType[] = [];
+    if (!flowResult.consumed) {
+      automationTriggers.push('new_message_received', 'keyword_match');
+    }
+    if (contactWasCreated) automationTriggers.unshift('new_contact_created');
+    if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
+
+    for (const triggerType of automationTriggers) {
+      await runAutomationsForTrigger({
+        accountId: config.account_id,
+        triggerType,
+        contactId,
+        context: {
+          message_text: inboundText,
+          conversation_id: conversationId,
+        },
+      }).catch((err) =>
+        console.error('[waha-webhook] automation dispatch failed:', err),
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });
