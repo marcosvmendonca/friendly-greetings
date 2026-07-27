@@ -1538,17 +1538,27 @@ export async function POST(request: Request) {
       userId: config.user_id,
       contactId,
       conversationId,
-      message: {
-        kind: 'text',
-        text: inboundText,
-        meta_message_id: normalized.messageId,
-      },
+      message: menuReplyId
+        ? {
+            kind: 'interactive_reply',
+            reply_id: menuReplyId,
+            title: inboundText,
+            meta_message_id: normalized.messageId,
+          }
+        : {
+            kind: 'text',
+            text: inboundText,
+            meta_message_id: normalized.messageId,
+          },
       isFirstInboundMessage,
     });
 
     const automationTriggers: AutomationTriggerType[] = [];
     if (!flowResult.consumed) {
       automationTriggers.push('new_message_received', 'keyword_match');
+      // Numbered-menu answer resolved back to a button/list id → the
+      // same trigger Meta fires on a native tap.
+      if (menuReplyId) automationTriggers.push('interactive_reply');
     }
     if (contactWasCreated) automationTriggers.unshift('new_contact_created');
     if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
@@ -1561,6 +1571,7 @@ export async function POST(request: Request) {
         context: {
           message_text: inboundText,
           conversation_id: conversationId,
+          interactive_reply_id: menuReplyId ?? undefined,
         },
       }).catch((err) =>
         console.error('[waha-webhook] automation dispatch failed:', err),
