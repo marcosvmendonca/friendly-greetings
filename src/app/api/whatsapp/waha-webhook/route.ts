@@ -1254,6 +1254,7 @@ export async function POST(request: Request) {
       : null;
   const existing = existingByPhone ?? existingByChatIdPhone;
   let contactId: string | undefined = existing?.id;
+  let contactWasCreated = false;
   let existingName: string | null = (existing?.name as string | null) ?? null;
   let existingAvatar: string | null = (existing?.avatar_url as string | null) ?? null;
 
@@ -1284,6 +1285,7 @@ export async function POST(request: Request) {
     }
     if (inserted?.id) {
       contactId = inserted.id as string;
+      contactWasCreated = true;
       existingName = (inserted.name as string | null) ?? initialName;
       existingAvatar = (inserted.avatar_url as string | null) ?? null;
     } else {
@@ -1352,6 +1354,16 @@ export async function POST(request: Request) {
     conversationId = conversationId ?? convInsert?.id;
   }
   if (!conversationId) return NextResponse.json({ ok: false }, { status: 500 });
+
+  // Whether this is the contact's very first inbound message — computed
+  // BEFORE the insert so `first_inbound_message` stays accurate even for
+  // contacts imported manually who never messaged us before.
+  const { count: priorCustomerMsgCount } = await admin
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer');
+  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
 
   // Insert the message. Idempotent on wamid.
   const { data: existingMsg } = await admin
