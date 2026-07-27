@@ -1553,15 +1553,13 @@ export async function POST(request: Request) {
       isFirstInboundMessage,
     });
 
-    const automationTriggers: AutomationTriggerType[] = [];
-    if (!flowResult.consumed) {
-      automationTriggers.push('new_message_received', 'keyword_match');
-      // Numbered-menu answer resolved back to a button/list id → the
-      // same trigger Meta fires on a native tap.
-      if (menuReplyId) automationTriggers.push('interactive_reply');
-    }
-    if (contactWasCreated) automationTriggers.unshift('new_contact_created');
-    if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
+    const automationTriggers = computeInboundAutomationTriggers({
+      flowConsumed: flowResult.consumed,
+      contactWasCreated,
+      isFirstInboundMessage,
+      menuReplyId,
+    });
+
 
     for (const triggerType of automationTriggers) {
       await runAutomationsForTrigger({
