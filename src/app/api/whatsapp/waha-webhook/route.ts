@@ -6,6 +6,7 @@ import { normalizeWahaMessageId } from '@/lib/whatsapp/waha-api';
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
+import { resolveMenuReply } from '@/lib/messaging/menu-reply';
 import type { AutomationTriggerType } from '@/types';
 
 /**
