@@ -1382,6 +1382,18 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
   let insertedMessage = false;
+  // WAHA renders menus as numbered text, so a tap comes back as "2" or
+  // "Suporte". Map it to the original button/list id before the insert
+  // so the row carries `interactive_reply_id` exactly like Meta's.
+  let menuReplyId: string | null = null;
+  if (!normalized.fromMe && normalized.contentType === 'text') {
+    const match = await resolveMenuReply(
+      admin,
+      conversationId,
+      normalized.contentText ?? '',
+    ).catch(() => null);
+    menuReplyId = match?.reply_id ?? null;
+  }
   if (!existingMsg) {
     // For media messages, try to persist the binary in Storage BEFORE
     // insert so the row lands with a stable public URL. If the download
@@ -1414,6 +1426,7 @@ export async function POST(request: Request) {
       status: normalized.fromMe ? 'sent' : 'delivered',
       message_id: normalized.messageId,
       created_at: normalized.createdAt,
+      interactive_reply_id: menuReplyId,
     });
     if (msgErr) {
       // Migration 039 adds a partial unique index on
